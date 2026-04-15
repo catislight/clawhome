@@ -2,8 +2,6 @@
   <img src="resources/logo.png" alt="openclaw-console logo" width="64" />
   <h1>ClawHome</h1>
 
-  ---
-
   <p><strong>English</strong> | <a href="./README_ZH.md">中文</a></p>
 
  <p align="center">
