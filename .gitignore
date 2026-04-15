@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-electron
+out
+.DS_Store
+.eslintcache
+tmp
+
+.agent
+.claude
+.logs
+.vscode
+.pnpm-store
+build/
+
+docs/
+openclaw/

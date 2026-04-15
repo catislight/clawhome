@@ -1,0 +1,283 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Fredoka One';
+  src: url('../../../resources/FredokaOne-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --background: oklch(0.985 0.004 247.858);
+  --foreground: oklch(0.278 0.033 256.848);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.278 0.033 256.848);
+  --primary: oklch(0.546 0.245 262.881);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.003 264.542);
+  --secondary-foreground: oklch(0.372 0.044 257.287);
+  --muted: oklch(0.967 0.003 264.542);
+  --muted-foreground: oklch(0.551 0.027 264.364);
+  --border: oklch(0.928 0.006 264.531);
+  --input: oklch(0.928 0.006 264.531);
+  --ring: oklch(0.623 0.214 259.815);
+  --radius: 0.95rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .window-drag-region {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .window-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  .brand-title-display {
+    font-family: 'Fredoka One', 'SF Pro Display', 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    font-weight: 400;
+    letter-spacing: -0.012em;
+    color: #4b5565;
+  }
+
+  @keyframes streaming-char-fade-in {
+    from {
+      opacity: 0;
+      filter: blur(0.08rem);
+    }
+
+    to {
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+
+  .conversation-scroll-area {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 140, 159, 0.56) transparent;
+  }
+
+  .conversation-scroll-area::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .conversation-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .conversation-scroll-area::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background: rgba(128, 140, 159, 0.5);
+    background-clip: padding-box;
+  }
+
+  .conversation-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: rgba(103, 116, 138, 0.68);
+    background-clip: padding-box;
+  }
+
+  .conversation-scroll-area::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .streaming-assistant-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .streaming-assistant-char {
+    animation: streaming-char-fade-in 180ms ease-out forwards;
+  }
+
+  .markdown-content {
+    color: inherit;
+    word-break: break-word;
+  }
+
+  .markdown-content > :first-child {
+    margin-top: 0;
+  }
+
+  .markdown-content > :last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown-content p,
+  .markdown-content ul,
+  .markdown-content ol,
+  .markdown-content blockquote,
+  .markdown-content pre,
+  .markdown-content .markdown-code-block,
+  .markdown-content table {
+    margin: 0.7rem 0;
+  }
+
+  .markdown-content h1,
+  .markdown-content h2,
+  .markdown-content h3,
+  .markdown-content h4,
+  .markdown-content h5,
+  .markdown-content h6 {
+    margin: 1rem 0 0.55rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .markdown-content h1 {
+    font-size: 1.3rem;
+  }
+
+  .markdown-content h2 {
+    font-size: 1.15rem;
+  }
+
+  .markdown-content h3 {
+    font-size: 1.02rem;
+  }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    list-style-position: outside;
+    padding-left: 1.3rem;
+  }
+
+  .markdown-content ul {
+    list-style-type: disc;
+  }
+
+  .markdown-content ol {
+    list-style-type: decimal;
+  }
+
+  .markdown-content li + li {
+    margin-top: 0.25rem;
+  }
+
+  .markdown-content a {
+    color: #0066cc;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  .markdown-content code {
+    border-radius: 0.45rem;
+    background: rgba(15, 23, 42, 0.06);
+    padding: 0.1rem 0.38rem;
+    font-family: 'SFMono-Regular', 'SFMono-Regular', 'Menlo', 'Monaco', monospace;
+    font-size: 0.92em;
+  }
+
+  .markdown-content pre,
+  .markdown-content .markdown-code-block .markdown-plain-code,
+  .markdown-content .markdown-code-block .markdown-syntax-highlighter {
+    overflow-x: auto;
+    border-radius: 0.85rem;
+    padding: 0.95rem 1rem;
+  }
+
+  .markdown-content .markdown-code-block .markdown-plain-code {
+    background: #111827;
+    color: #e6edf7;
+  }
+
+  .markdown-content pre code,
+  .markdown-content .markdown-code-block .markdown-plain-code code,
+  .markdown-content .markdown-code-block .markdown-syntax-highlighter code {
+    background: transparent;
+    padding: 0;
+  }
+
+  .markdown-content .markdown-code-block .markdown-plain-code code {
+    color: #e6edf7;
+  }
+
+  .markdown-content .markdown-code-block .markdown-plain-code,
+  .markdown-content .markdown-code-block .markdown-syntax-highlighter {
+    margin: 0;
+  }
+
+  .markdown-content blockquote {
+    border-left: 3px solid rgba(10, 132, 255, 0.22);
+    padding-left: 0.95rem;
+    color: #5f6b7a;
+  }
+
+  .markdown-content table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 0.8rem;
+    overflow: hidden;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .markdown-content th,
+  .markdown-content td {
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .markdown-content tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .markdown-content th {
+    background: rgba(15, 23, 42, 0.04);
+    font-weight: 600;
+  }
+
+  .markdown-content hr {
+    margin: 1rem 0;
+    border: 0;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+}
