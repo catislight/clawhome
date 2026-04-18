@@ -11,27 +11,18 @@ export function createMainWindow(): BrowserWindow {
       ? {
           titleBarStyle: 'hiddenInset' as const
         }
-      : process.platform === 'win32'
-        ? {
-            titleBarStyle: 'hidden' as const,
-            titleBarOverlay: {
-              color: '#ffffff',
-              symbolColor: '#111827',
-              height: 36
-            }
-          }
-        : {}
+      : {}
 
   const mainWindow = new BrowserWindow({
     width: 1300,
     minWidth: 950,
     height: 670,
-    title: '',
+    title: 'ClawHome',
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#ffffff',
     ...titleBarConfig,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'darwin' ? {} : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

@@ -9,7 +9,7 @@ import {
   Workflow
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { BrowserRouter, Link } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Link } from 'react-router-dom'
 
 import openclawLogo from '../../../../resources/logo.png'
 import AppShellLeftNavbar, {
@@ -125,8 +125,10 @@ function App(): React.JSX.Element {
     document.documentElement.lang = language
   }, [language])
 
+  const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter
+
   return (
-    <BrowserRouter>
+    <Router>
       <main className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
         <div className="flex size-full overflow-hidden">
           <AppShellLeftNavbar
@@ -164,7 +166,7 @@ function App(): React.JSX.Element {
           <AppRouter />
         </div>
       </main>
-    </BrowserRouter>
+    </Router>
   )
 }
 
