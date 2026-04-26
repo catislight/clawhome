@@ -12,6 +12,11 @@ import {
   parseGatewaySessionsList,
   type GatewaySessionListItem
 } from '@/features/chat/lib/gateway-sessions'
+import { useAppPreferenceStore } from '@/features/preferences/store/use-app-preference-store'
+import {
+  deleteChatConversationSnapshot,
+  hasAppApiMethod
+} from '@/shared/api/app-api'
 
 type UseHomeChatSessionsOptions = {
   activeInstanceId: string | null
@@ -158,7 +163,12 @@ function filterSessionsByAgentId(
 export function useHomeChatSessions({
   activeInstanceId
 }: UseHomeChatSessionsOptions): UseHomeChatSessionsResult {
-  const [sessionKeysByInstanceId, setSessionKeysByInstanceId] = useState<Record<string, string>>({})
+  const selectedSessionKeyByInstanceId = useAppPreferenceStore(
+    (state) => state.homeChat.selectedSessionKeyByInstanceId
+  )
+  const setHomeChatSessionPreference = useAppPreferenceStore(
+    (state) => state.setHomeChatSessionPreference
+  )
   const [localSessionsByInstanceId, setLocalSessionsByInstanceId] = useState<
     Record<string, GatewaySessionListItem[]>
   >({})
@@ -169,9 +179,9 @@ export function useHomeChatSessions({
 
   const activeSessionKey = useMemo(
     () =>
-      (activeInstanceId ? sessionKeysByInstanceId[activeInstanceId] : null) ??
+      (activeInstanceId ? selectedSessionKeyByInstanceId[activeInstanceId] : null) ??
       DEFAULT_CHAT_SESSION_KEY,
-    [activeInstanceId, sessionKeysByInstanceId]
+    [activeInstanceId, selectedSessionKeyByInstanceId]
   )
 
   useEffect(() => {
@@ -198,10 +208,7 @@ export function useHomeChatSessions({
         ...current,
         [instanceId]: mergeGatewaySessions([nextSession], current[instanceId] ?? [])
       }))
-      setSessionKeysByInstanceId((current) => ({
-        ...current,
-        [instanceId]: nextSession.key
-      }))
+      setHomeChatSessionPreference(instanceId, nextSession.key)
 
       // Best-effort: persist a friendly label so the new session also appears clearly
       // in the gateway-backed session list after the first message.
@@ -217,7 +224,7 @@ export function useHomeChatSessions({
         }
       ).catch(() => undefined)
     },
-    []
+    [setHomeChatSessionPreference]
   )
 
   const renameConversation = useCallback(
@@ -291,6 +298,13 @@ export function useHomeChatSessions({
         }
       )
 
+      if (hasAppApiMethod('deleteChatConversationSnapshot')) {
+        await deleteChatConversationSnapshot({
+          instanceId,
+          sessionKey
+        }).catch(() => undefined)
+      }
+
       const requestedFallback = options?.fallbackSessionKey?.trim()
       const fallbackSessionKey =
         requestedFallback && !isSameGatewaySessionKey(requestedFallback, sessionKey)
@@ -308,24 +322,17 @@ export function useHomeChatSessions({
         current.filter((session) => !isSameGatewaySessionKey(session.key, sessionKey))
       )
 
-      setSessionKeysByInstanceId((current) => {
-        const currentSessionKey = current[instanceId]
-        if (!currentSessionKey || !isSameGatewaySessionKey(currentSessionKey, sessionKey)) {
-          return current
-        }
-
-        return {
-          ...current,
-          [instanceId]: fallbackSessionKey
-        }
-      })
+      const currentSessionKey = selectedSessionKeyByInstanceId[instanceId]
+      if (currentSessionKey && isSameGatewaySessionKey(currentSessionKey, sessionKey)) {
+        setHomeChatSessionPreference(instanceId, fallbackSessionKey)
+      }
 
       setPendingSessionKey((current) =>
         isSameGatewaySessionKey(current, sessionKey) ? fallbackSessionKey : current
       )
       setSessionDialogError(null)
     },
-    []
+    [selectedSessionKeyByInstanceId, setHomeChatSessionPreference]
   )
 
   const loadSessionOptions = useCallback(
@@ -405,13 +412,10 @@ export function useHomeChatSessions({
 
   const confirmSessionSwitch = useCallback(
     (instanceId: string): void => {
-      setSessionKeysByInstanceId((current) => ({
-        ...current,
-        [instanceId]: pendingSessionKey
-      }))
+      setHomeChatSessionPreference(instanceId, pendingSessionKey)
       setSessionDialogError(null)
     },
-    [pendingSessionKey]
+    [pendingSessionKey, setHomeChatSessionPreference]
   )
 
   const resetSessionDialogState = useCallback((): void => {

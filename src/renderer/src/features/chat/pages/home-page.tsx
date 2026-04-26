@@ -163,6 +163,9 @@ function HomePage(): React.JSX.Element {
     showHistoryLoadingState,
     historyError,
     submitting,
+    aborting,
+    isConversationRunning,
+    abortConversation,
     canResetConversation: canCreateConversation,
     sendMessage
   } = useGatewayConversation({
@@ -329,6 +332,9 @@ function HomePage(): React.JSX.Element {
               submitLabel={t('chat.composer.submit')}
               disabled={showHistoryLoadingState}
               submitting={submitting}
+              stopVisible={isConversationRunning}
+              stopping={aborting}
+              onStop={abortConversation}
               showShortcutHint
               shortcutHint={sendShortcutHint}
               sendShortcuts={composerSendShortcuts}
@@ -340,7 +346,11 @@ function HomePage(): React.JSX.Element {
                   onValueChange={chatModelSelector.onValueChange}
                   placeholder={chatModelSelector.placeholder}
                   ariaLabel={t('chat.model.ariaSwitch')}
-                  disabled={showHistoryLoadingState || submitting || chatModelSelector.loading}
+                  disabled={
+                    showHistoryLoadingState ||
+                    isConversationRunning ||
+                    chatModelSelector.loading
+                  }
                 />
               }
             />

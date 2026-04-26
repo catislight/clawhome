@@ -11,6 +11,7 @@ export const GATEWAY_REQUEST_TIMEOUT_MS = {
   history: 15_000,
   sessionPatch: 12_000,
   chatSend: 20_000,
+  chatAbort: 12_000,
   sessionReset: 20_000
 } as const
 

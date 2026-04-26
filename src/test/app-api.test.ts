@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   connectGateway,
+  loadChatConversationSnapshot,
   getGatewayConnectionStatus,
   getAppApiUnavailableMessage,
-  requestGateway
+  requestGateway,
+  saveChatConversationSnapshot
 } from '../renderer/src/shared/api/app-api'
 
 describe('app-api', () => {
@@ -22,6 +24,15 @@ describe('app-api', () => {
       success: true,
       connected: true,
       message: 'mock connected'
+    })
+    window.api.saveChatConversationSnapshot = vi.fn().mockResolvedValue({
+      success: true,
+      message: 'mock chat snapshot saved'
+    })
+    window.api.loadChatConversationSnapshot = vi.fn().mockResolvedValue({
+      success: true,
+      message: 'mock chat snapshot loaded',
+      snapshot: null
     })
   })
 
@@ -66,5 +77,37 @@ describe('app-api', () => {
     ).toThrow(getAppApiUnavailableMessage('connectGateway'))
 
     window.api.connectGateway = originalConnectGateway
+  })
+
+  it('routes chat snapshot persistence calls through shared bridge wrappers', async () => {
+    await saveChatConversationSnapshot({
+      instanceId: 'instance-1',
+      sessionKey: 'main',
+      snapshot: {
+        updatedAt: 1,
+        messages: [],
+        runTraces: []
+      }
+    })
+
+    await loadChatConversationSnapshot({
+      instanceId: 'instance-1',
+      sessionKey: 'main'
+    })
+
+    expect(window.api.saveChatConversationSnapshot).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      sessionKey: 'main',
+      snapshot: {
+        updatedAt: 1,
+        messages: [],
+        runTraces: []
+      }
+    })
+
+    expect(window.api.loadChatConversationSnapshot).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      sessionKey: 'main'
+    })
   })
 })

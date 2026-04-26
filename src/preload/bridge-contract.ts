@@ -25,7 +25,10 @@ export const IPC_CHANNELS = {
   localMemoryFileWrite: 'local-memory-files:write',
   localMemoryFileDelete: 'local-memory-files:delete',
   workspaceImageUpload: 'workspace-image:upload',
-  workspaceImageRead: 'workspace-image:read'
+  workspaceImageRead: 'workspace-image:read',
+  chatPersistenceSaveConversationSnapshot: 'chat-persistence:save-conversation-snapshot',
+  chatPersistenceLoadConversationSnapshot: 'chat-persistence:load-conversation-snapshot',
+  chatPersistenceDeleteConversationSnapshot: 'chat-persistence:delete-conversation-snapshot'
 } as const
 
 export type SshConnectionTestPayload = {
@@ -301,6 +304,85 @@ export type WorkspaceImageReadResult = {
   absolutePath: string
 }
 
+export type PersistedConversationUserTag = {
+  type: 'image' | 'attachment' | 'text'
+  label: string
+  previewSrc?: string
+  relativePath?: string
+  absolutePath?: string
+}
+
+export type PersistedConversationMessageStatus = 'sending' | 'sent' | 'streaming' | 'error'
+
+export type PersistedConversationMessage = {
+  id: string
+  role: 'assistant' | 'user'
+  content: string
+  timeLabel: string
+  status?: PersistedConversationMessageStatus
+  runId?: string
+  tags?: PersistedConversationUserTag[]
+}
+
+export type PersistedConversationRunTrace = {
+  runId: string
+  skills: string[]
+  tools: string[]
+  toolLogs: Array<{
+    id: string
+    toolCallId: string
+    title: string
+    content: string
+  }>
+  activeToolCallIds: string[]
+  activeToolCalls: Array<{
+    toolCallId: string
+    toolName: string
+    skillName?: string
+  }>
+  isGenerating: boolean
+}
+
+export type ChatPersistenceConversationSnapshot = {
+  updatedAt: number
+  messages: PersistedConversationMessage[]
+  runTraces: PersistedConversationRunTrace[]
+}
+
+export type ChatPersistenceSaveConversationSnapshotPayload = {
+  instanceId: string
+  sessionKey: string
+  modelId?: string | null
+  snapshot: ChatPersistenceConversationSnapshot
+}
+
+export type ChatPersistenceSaveConversationSnapshotResult = {
+  success: boolean
+  message: string
+}
+
+export type ChatPersistenceLoadConversationSnapshotPayload = {
+  instanceId: string
+  sessionKey: string
+}
+
+export type ChatPersistenceLoadConversationSnapshotResult = {
+  success: boolean
+  message: string
+  snapshot: ChatPersistenceConversationSnapshot | null
+}
+
+export type ChatPersistenceDeleteConversationSnapshotPayload = {
+  instanceId: string
+  sessionKey: string
+}
+
+export type ChatPersistenceDeleteConversationSnapshotResult = {
+  success: boolean
+  message: string
+  deleted: boolean
+}
+
 export type TerminalSessionCreatePayload = {
   cwd?: string
   shell?: string
@@ -397,4 +479,13 @@ export type AppBridgeApi = {
     payload: WorkspaceImageUploadPayload
   ) => Promise<WorkspaceImageUploadResult>
   readWorkspaceImage: (payload: WorkspaceImageReadPayload) => Promise<WorkspaceImageReadResult>
+  saveChatConversationSnapshot: (
+    payload: ChatPersistenceSaveConversationSnapshotPayload
+  ) => Promise<ChatPersistenceSaveConversationSnapshotResult>
+  loadChatConversationSnapshot: (
+    payload: ChatPersistenceLoadConversationSnapshotPayload
+  ) => Promise<ChatPersistenceLoadConversationSnapshotResult>
+  deleteChatConversationSnapshot: (
+    payload: ChatPersistenceDeleteConversationSnapshotPayload
+  ) => Promise<ChatPersistenceDeleteConversationSnapshotResult>
 }

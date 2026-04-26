@@ -31,6 +31,7 @@ type ConversationOutputProps = {
 type ConversationMessageBubbleProps = {
   message: ConversationMessage
   trace?: ConversationRunTrace
+  traceForActions?: ConversationRunTrace
   connectionConfig?: SshConnectionFormValues | null
   assistantAvatar?: ConversationAvatar
   userAvatar?: ConversationAvatar
@@ -98,6 +99,7 @@ function AvatarBadge({
 function ConversationMessageBubble({
   message,
   trace,
+  traceForActions,
   connectionConfig,
   assistantAvatar,
   userAvatar,
@@ -289,6 +291,7 @@ function ConversationMessageBubble({
             messageId={message.id}
             runId={message.runId}
             timeLabel={message.timeLabel}
+            toolLogs={traceForActions?.toolLogs}
             className="opacity-45 transition-opacity duration-150 group-hover/message:opacity-100"
           />
         ) : null}
@@ -345,6 +348,7 @@ const MemoizedConversationMessageBubble = memo(
   (previousProps, nextProps) =>
     previousProps.message === nextProps.message &&
     previousProps.trace === nextProps.trace &&
+    previousProps.traceForActions === nextProps.traceForActions &&
     previousProps.connectionConfig === nextProps.connectionConfig &&
     previousProps.assistantAvatar === nextProps.assistantAvatar &&
     previousProps.userAvatar === nextProps.userAvatar &&
@@ -394,18 +398,18 @@ function ConversationOutput({
       ) : (
         <div className={cn('space-y-2.5 py-3', innerClassName)}>
           {messages.map((message, index) => {
-            const trace =
+            const traceForMessage =
               message.role === 'assistant' && message.runId
                 ? messageTraces?.[message.runId]
                 : undefined
             const shouldRenderEmbeddedTrace = Boolean(
-              trace &&
+              traceForMessage &&
               message.runId &&
               !renderedTraceRunIds.has(message.runId) &&
-              (trace.skills.length > 0 || trace.tools.length > 0) &&
+              (traceForMessage.skills.length > 0 || traceForMessage.tools.length > 0) &&
               (message.content.trim().length > 0 ||
-                trace.activeToolCallIds.length > 0 ||
-                trace.isGenerating)
+                traceForMessage.activeToolCallIds.length > 0 ||
+                traceForMessage.isGenerating)
             )
 
             if (shouldRenderEmbeddedTrace && message.runId) {
@@ -420,7 +424,8 @@ function ConversationOutput({
               <MemoizedConversationMessageBubble
                 key={message.id}
                 message={message}
-                trace={shouldRenderEmbeddedTrace ? trace : undefined}
+                trace={shouldRenderEmbeddedTrace ? traceForMessage : undefined}
+                traceForActions={traceForMessage}
                 connectionConfig={connectionConfig}
                 assistantAvatar={assistantAvatar}
                 userAvatar={userAvatar}

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useOpenClawModelChoices } from '@/features/agents/lib/use-openclaw-model-choices'
 import { isSameGatewaySessionKey } from '@/features/chat/lib/gateway-chat'
 import { parseGatewaySessionsList } from '@/features/chat/lib/gateway-sessions'
+import { useAppPreferenceStore } from '@/features/preferences/store/use-app-preference-store'
 import { requestGatewayMethod } from '@/shared/api/gateway-client'
 import { useAppI18n } from '@/shared/i18n/app-i18n'
 import type { SelectOption } from '@/shared/ui/select'
+import { buildGatewayConversationRuntimeKey } from '@/stores/use-gateway-conversation-store'
 
 type UseChatModelSelectorOptions = {
   instanceId: string | null
@@ -46,10 +48,26 @@ export function useChatModelSelector({
   const { t } = useAppI18n()
   const [value, setValue] = useState('')
   const [currentSessionModel, setCurrentSessionModel] = useState<string | null>(null)
+  const selectedModelByConversationKey = useAppPreferenceStore(
+    (state) => state.homeChat.selectedModelByConversationKey
+  )
+  const setHomeChatModelPreference = useAppPreferenceStore(
+    (state) => state.setHomeChatModelPreference
+  )
   const models = useOpenClawModelChoices({
     instanceId,
     enabled
   })
+  const conversationKey = useMemo(() => {
+    if (!instanceId) {
+      return null
+    }
+
+    return buildGatewayConversationRuntimeKey(instanceId, sessionKey)
+  }, [instanceId, sessionKey])
+  const preferredModelValue = conversationKey
+    ? (selectedModelByConversationKey[conversationKey]?.trim() ?? '')
+    : ''
 
   const options = useMemo<SelectOption[]>(() => {
     const listedOptions = models.models.map((model) => ({
@@ -74,9 +92,15 @@ export function useChatModelSelector({
   }, [currentSessionModel, models.models])
 
   useEffect(() => {
-    setValue('')
+    const persistedValue = conversationKey
+      ? (useAppPreferenceStore
+          .getState()
+          .homeChat.selectedModelByConversationKey[conversationKey]
+          ?.trim() ?? '')
+      : ''
+    setValue(persistedValue)
     setCurrentSessionModel(null)
-  }, [instanceId, sessionKey])
+  }, [conversationKey, instanceId, sessionKey])
 
   useEffect(() => {
     if (!enabled || !instanceId) {
@@ -127,6 +151,10 @@ export function useChatModelSelector({
         return current
       }
 
+      if (preferredModelValue) {
+        return preferredModelValue
+      }
+
       const normalizedCurrentSessionModel = currentSessionModel?.trim()
       if (normalizedCurrentSessionModel) {
         return normalizedCurrentSessionModel
@@ -134,7 +162,20 @@ export function useChatModelSelector({
 
       return ''
     })
-  }, [currentSessionModel, options])
+  }, [currentSessionModel, options, preferredModelValue])
+
+  const handleValueChange = useCallback(
+    (nextValue: string): void => {
+      setValue(nextValue)
+
+      if (!conversationKey) {
+        return
+      }
+
+      setHomeChatModelPreference(conversationKey, nextValue)
+    },
+    [conversationKey, setHomeChatModelPreference]
+  )
 
   return {
     value,
@@ -147,6 +188,6 @@ export function useChatModelSelector({
         : t('chat.model.placeholderSelect'),
     loading: models.loading,
     error: models.error,
-    onValueChange: setValue
+    onValueChange: handleValueChange
   }
 }

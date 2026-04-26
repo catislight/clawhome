@@ -68,7 +68,13 @@ function createAppBridgeApi(): AppBridgeApi {
       ipcRenderer.invoke(IPC_CHANNELS.localMemoryFileDelete, payload),
     uploadWorkspaceImage: (payload) =>
       ipcRenderer.invoke(IPC_CHANNELS.workspaceImageUpload, payload),
-    readWorkspaceImage: (payload) => ipcRenderer.invoke(IPC_CHANNELS.workspaceImageRead, payload)
+    readWorkspaceImage: (payload) => ipcRenderer.invoke(IPC_CHANNELS.workspaceImageRead, payload),
+    saveChatConversationSnapshot: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chatPersistenceSaveConversationSnapshot, payload),
+    loadChatConversationSnapshot: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chatPersistenceLoadConversationSnapshot, payload),
+    deleteChatConversationSnapshot: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.chatPersistenceDeleteConversationSnapshot, payload)
   }
 }
 

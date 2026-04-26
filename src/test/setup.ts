@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach } from 'vitest'
 import { vi } from 'vitest'
 
+import { useAppPreferenceStore } from '../renderer/src/features/preferences/store/use-app-preference-store'
 import { useGatewayConversationStore } from '../renderer/src/stores/use-gateway-conversation-store'
 
 afterEach(() => {
@@ -11,6 +12,7 @@ afterEach(() => {
     workspacePathByInstanceId: {},
     sessionModelOverrideByConversationKey: {}
   })
+  useAppPreferenceStore.getState().resetPreferences()
   cleanup()
 })
 
@@ -160,6 +162,20 @@ Object.defineProperty(window, 'api', {
       mimeType: 'image/png',
       base64Data: 'QUJDRA==',
       absolutePath: '/workspace/images/uploaded.png'
+    }),
+    saveChatConversationSnapshot: vi.fn().mockResolvedValue({
+      success: true,
+      message: 'mock chat snapshot saved'
+    }),
+    loadChatConversationSnapshot: vi.fn().mockResolvedValue({
+      success: true,
+      message: 'mock chat snapshot loaded',
+      snapshot: null
+    }),
+    deleteChatConversationSnapshot: vi.fn().mockResolvedValue({
+      success: true,
+      message: 'mock chat snapshot deleted',
+      deleted: true
     })
   },
   writable: true

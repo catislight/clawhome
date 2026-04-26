@@ -24,10 +24,13 @@ vi.mock('../renderer/src/features/chat/components/editor/SlashInput', () => ({
     submitLabel?: string
     disabled?: boolean
     submitting?: boolean
+    stopVisible?: boolean
+    stopping?: boolean
+    onStop?: () => void
     footerLeading?: ReactNode
   }): React.JSX.Element {
     const [value, setValue] = useState('')
-    const locked = Boolean(props.disabled || props.submitting)
+    const locked = Boolean(props.disabled || props.submitting || props.stopping)
 
     return (
       <form
@@ -49,13 +52,24 @@ vi.mock('../renderer/src/features/chat/components/editor/SlashInput', () => ({
         <div>{props.footerLeading}</div>
         <textarea
           aria-label={props.ariaLabel ?? '消息输入框'}
-          disabled={locked}
+          disabled={Boolean(props.disabled || props.submitting)}
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
-        <button type="submit" aria-label={props.submitLabel ?? '发送'} disabled={locked}>
-          {props.submitLabel ?? '发送'}
-        </button>
+        {props.stopVisible ? (
+          <button
+            type="button"
+            aria-label="停止"
+            disabled={locked}
+            onClick={() => props.onStop?.()}
+          >
+            停止
+          </button>
+        ) : (
+          <button type="submit" aria-label={props.submitLabel ?? '发送'} disabled={locked}>
+            {props.submitLabel ?? '发送'}
+          </button>
+        )}
       </form>
     )
   }
@@ -318,6 +332,477 @@ describe('HomePage', () => {
     expect(screen.getByText('web_search')).toBeInTheDocument()
     expect(screen.getAllByText('Skill')).toHaveLength(1)
     expect(screen.getAllByRole('article').length).toBeGreaterThanOrEqual(2)
+  }, 12000)
+
+  it('keeps tool logs available after history reconcile strips tool metadata', async () => {
+    const instanceId = useAppStore.getState().createOpenClawInstance({
+      name: '生产集群',
+      description: '线上环境'
+    })
+
+    useAppStore.getState().saveConnectionConfig(instanceId, mockConnectionConfig)
+    useAppStore.getState().setConnectionState(instanceId, 'connected', {
+      lastConnectedAt: '2026-03-21T08:00:00.000Z',
+      lastError: null
+    })
+
+    let historyCallCount = 0
+    let chatSent = false
+    let toolEventsDelivered = false
+    let chatRunId = 'ui-tool-log-reconcile-run'
+    const requestGatewayMock = vi.mocked(window.api.requestGateway)
+    const pullGatewayEventsMock = vi.mocked(window.api.pullGatewayEvents)
+    const saveSnapshotMock = vi.mocked(window.api.saveChatConversationSnapshot)
+
+    requestGatewayMock.mockImplementation(async (payload) => {
+      if (payload.method === 'chat.history') {
+        historyCallCount += 1
+        if (historyCallCount === 1) {
+          return {
+            success: true,
+            message: 'mock history success',
+            payload: {
+              messages: []
+            }
+          }
+        }
+
+        return {
+          success: true,
+          message: 'mock history success',
+          payload: {
+            messages: [
+              {
+                id: 'history-user-tool-log-1',
+                role: 'user',
+                createdAt: '2026-03-21T10:01:00.000Z',
+                content: [
+                  {
+                    type: 'text',
+                    text: '帮我检查 nginx 状态'
+                  }
+                ]
+              },
+              {
+                id: 'history-assistant-tool-log-1',
+                role: 'assistant',
+                createdAt: '2026-03-21T10:01:03.000Z',
+                content: [
+                  {
+                    type: 'text',
+                    text: '已完成检查。'
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+
+      if (payload.method === 'chat.subscribe') {
+        return {
+          success: true,
+          message: 'mock subscribe success',
+          payload: {}
+        }
+      }
+
+      if (payload.method === 'chat.send') {
+        chatSent = true
+        chatRunId =
+          payload.params && typeof payload.params === 'object' && payload.params !== null
+            ? String((payload.params as { idempotencyKey?: string }).idempotencyKey ?? chatRunId)
+            : chatRunId
+
+        return {
+          success: true,
+          message: 'mock chat send success',
+          payload: {
+            runId: chatRunId,
+            status: 'started'
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: 'mock request success',
+        payload: {}
+      }
+    })
+
+    pullGatewayEventsMock.mockImplementation(async () => {
+      if (!chatSent || toolEventsDelivered) {
+        return {
+          success: true,
+          message: 'mock events success',
+          events: []
+        }
+      }
+
+      toolEventsDelivered = true
+      return {
+        success: true,
+        message: 'mock events success',
+        events: [
+          {
+            event: 'agent',
+            receivedAt: '2026-03-21T10:01:01.000Z',
+            payload: {
+              runId: chatRunId,
+              sessionKey: 'agent:main:main',
+              stream: 'assistant',
+              data: {
+                text: '已完成检查。',
+                delta: '已完成检查。'
+              }
+            }
+          },
+          {
+            event: 'agent',
+            receivedAt: '2026-03-21T10:01:01.200Z',
+            payload: {
+              runId: chatRunId,
+              sessionKey: 'agent:main:main',
+              stream: 'tool',
+              data: {
+                phase: 'start',
+                name: 'exec',
+                toolCallId: 'tool-exec-keep-log',
+                args: {
+                  command: 'cat /etc/nginx/nginx.conf'
+                }
+              }
+            }
+          },
+          {
+            event: 'agent',
+            receivedAt: '2026-03-21T10:01:01.400Z',
+            payload: {
+              runId: chatRunId,
+              sessionKey: 'agent:main:main',
+              stream: 'tool',
+              data: {
+                phase: 'result',
+                name: 'exec',
+                toolCallId: 'tool-exec-keep-log',
+                result: {
+                  ok: true
+                }
+              }
+            }
+          },
+          {
+            event: 'agent',
+            receivedAt: '2026-03-21T10:01:01.700Z',
+            payload: {
+              runId: chatRunId,
+              sessionKey: 'agent:main:main',
+              stream: 'lifecycle',
+              data: {
+                phase: 'end'
+              }
+            }
+          },
+          {
+            event: 'chat',
+            receivedAt: '2026-03-21T10:01:01.900Z',
+            payload: {
+              runId: chatRunId,
+              sessionKey: 'agent:main:main',
+              state: 'final',
+              message: '已完成检查。'
+            }
+          }
+        ]
+      }
+    })
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('对话输入框')).toBeEnabled()
+    })
+
+    fireEvent.change(screen.getByLabelText('对话输入框'), {
+      target: {
+        value: '帮我检查 nginx 状态'
+      }
+    })
+    fireEvent.submit(screen.getByLabelText('对话输入框').closest('form') as HTMLFormElement)
+
+    await waitFor(() => {
+      expect(requestGatewayMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'chat.send'
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('已完成检查。')).toBeInTheDocument()
+    })
+
+    const toolLogButtons = screen.getAllByRole('button', { name: '查看命令日志' })
+    fireEvent.click(toolLogButtons.at(-1) as HTMLButtonElement)
+
+    const dialog = screen.getByRole('dialog', { name: '命令调用日志' })
+    expect(within(dialog).queryByText('exec')).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/nginx\.conf/)).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(saveSnapshotMock).toHaveBeenCalled()
+    })
+
+    const latestSnapshotPayload = saveSnapshotMock.mock.calls.at(-1)?.[0]
+    const hasToolLogsPersisted =
+      latestSnapshotPayload?.snapshot.runTraces.some((runTrace) =>
+        runTrace.toolLogs.some((toolLog) => /nginx\.conf/.test(toolLog.content))
+      ) ?? false
+    expect(hasToolLogsPersisted).toBe(true)
+  }, 12000)
+
+  it('switches composer action to stop and aborts the active run', async () => {
+    const instanceId = useAppStore.getState().createOpenClawInstance({
+      name: '生产集群',
+      description: '线上环境'
+    })
+
+    useAppStore.getState().saveConnectionConfig(instanceId, mockConnectionConfig)
+    useAppStore.getState().setConnectionState(instanceId, 'connected', {
+      lastConnectedAt: '2026-03-21T08:00:00.000Z',
+      lastError: null
+    })
+
+    const requestGatewayMock = vi.mocked(window.api.requestGateway)
+    const pullGatewayEventsMock = vi.mocked(window.api.pullGatewayEvents)
+
+    requestGatewayMock.mockImplementation(async (payload) => {
+      if (payload.method === 'chat.history') {
+        return {
+          success: true,
+          message: 'mock history success',
+          payload: {
+            messages: []
+          }
+        }
+      }
+
+      if (payload.method === 'chat.subscribe' || payload.method === 'chat.send') {
+        return {
+          success: true,
+          message: 'ok',
+          payload: {}
+        }
+      }
+
+      if (payload.method === 'chat.abort') {
+        return {
+          success: true,
+          message: 'aborted',
+          payload: {
+            aborted: true
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: 'mock request success',
+        payload: {}
+      }
+    })
+
+    pullGatewayEventsMock.mockResolvedValue({
+      success: true,
+      message: 'mock events success',
+      events: []
+    })
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('对话输入框')).toBeEnabled()
+    })
+
+    fireEvent.change(screen.getByLabelText('对话输入框'), {
+      target: {
+        value: '请开始处理这个任务'
+      }
+    })
+    fireEvent.submit(screen.getByLabelText('对话输入框').closest('form') as HTMLFormElement)
+
+    await waitFor(() => {
+      expect(requestGatewayMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'chat.send'
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '停止' }))
+
+    await waitFor(() => {
+      expect(requestGatewayMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'chat.abort'
+        })
+      )
+    })
+  })
+
+  it('restores send action after chat final when agent lifecycle end is missing', async () => {
+    const instanceId = useAppStore.getState().createOpenClawInstance({
+      name: '生产集群',
+      description: '线上环境'
+    })
+
+    useAppStore.getState().saveConnectionConfig(instanceId, mockConnectionConfig)
+    useAppStore.getState().setConnectionState(instanceId, 'connected', {
+      lastConnectedAt: '2026-03-21T08:00:00.000Z',
+      lastError: null
+    })
+
+    let chatRunId = 'ui-agent-final-without-lifecycle'
+    let pullEventsCallCount = 0
+    const requestGatewayMock = vi.mocked(window.api.requestGateway)
+    const pullGatewayEventsMock = vi.mocked(window.api.pullGatewayEvents)
+
+    requestGatewayMock.mockImplementation(async (payload) => {
+      if (payload.method === 'chat.history') {
+        return {
+          success: true,
+          message: 'mock history success',
+          payload: {
+            messages: []
+          }
+        }
+      }
+
+      if (payload.method === 'chat.subscribe') {
+        return {
+          success: true,
+          message: 'mock subscribe success',
+          payload: {}
+        }
+      }
+
+      if (payload.method === 'chat.send') {
+        chatRunId =
+          payload.params && typeof payload.params === 'object' && payload.params !== null
+            ? String((payload.params as { idempotencyKey?: string }).idempotencyKey ?? chatRunId)
+            : chatRunId
+
+        return {
+          success: true,
+          message: 'mock chat send success',
+          payload: {
+            runId: chatRunId,
+            status: 'started'
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: 'mock request success',
+        payload: {}
+      }
+    })
+
+    pullGatewayEventsMock.mockImplementation(async () => {
+      pullEventsCallCount += 1
+
+      if (pullEventsCallCount === 1) {
+        return {
+          success: true,
+          message: 'mock events success',
+          events: []
+        }
+      }
+
+      if (pullEventsCallCount === 2) {
+        return {
+          success: true,
+          message: 'mock events success',
+          events: [
+            {
+              event: 'agent',
+              receivedAt: '2026-03-21T09:10:01.000Z',
+              payload: {
+                runId: chatRunId,
+                sessionKey: 'agent:main:main',
+                stream: 'assistant',
+                data: {
+                  text: '这是最终回复',
+                  delta: '这是最终回复'
+                }
+              }
+            },
+            {
+              event: 'chat',
+              receivedAt: '2026-03-21T09:10:01.300Z',
+              payload: {
+                runId: chatRunId,
+                sessionKey: 'agent:main:main',
+                state: 'final',
+                message: '这是最终回复'
+              }
+            }
+          ]
+        }
+      }
+
+      return {
+        success: true,
+        message: 'mock events success',
+        events: []
+      }
+    })
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('对话输入框')).toBeEnabled()
+    })
+
+    fireEvent.change(screen.getByLabelText('对话输入框'), {
+      target: {
+        value: '请处理这个任务'
+      }
+    })
+
+    fireEvent.submit(screen.getByLabelText('对话输入框').closest('form') as HTMLFormElement)
+
+    await waitFor(() => {
+      expect(requestGatewayMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'chat.send'
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('这是最终回复')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '停止' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument()
+    })
   }, 12000)
 
   it('patches provider/model ref before sending when a cross-provider model is selected', async () => {
@@ -633,6 +1118,10 @@ describe('HomePage', () => {
     })
 
     expect(screen.queryByText('现在可以直接发送消息')).not.toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(resolveHistoryRequest).not.toBeNull()
+    })
 
     resolveHistoryRequest?.({
       success: true,
@@ -1257,41 +1746,39 @@ describe('HomePage', () => {
 
     const requestGatewayMock = vi.mocked(window.api.requestGateway)
     const pullGatewayEventsMock = vi.mocked(window.api.pullGatewayEvents)
+    const loadSnapshotMock = vi.mocked(window.api.loadChatConversationSnapshot)
 
-    requestGatewayMock.mockImplementation(async (payload) => {
-      if (payload.method === 'chat.history') {
-        const requestedSessionKey =
-          payload.params && typeof payload.params === 'object' && payload.params !== null
-            ? (payload.params as { sessionKey?: string }).sessionKey
-            : undefined
-        const isMainSession =
-          requestedSessionKey === undefined ||
-          requestedSessionKey === 'main' ||
-          requestedSessionKey === 'agent:main:main'
+    loadSnapshotMock.mockImplementation(async ({ sessionKey }) => {
+      const isMainSession =
+        sessionKey === undefined || sessionKey === 'main' || sessionKey === 'agent:main:main'
 
+      if (!isMainSession) {
         return {
           success: true,
-          message: 'mock history success',
-          payload: {
-            messages: isMainSession
-              ? [
-                  {
-                    id: 'history-message-1',
-                    role: 'user',
-                    createdAt: '2026-03-21T08:01:00.000Z',
-                    content: [
-                      {
-                        type: 'text',
-                        text: '之前的对话内容'
-                      }
-                    ]
-                  }
-                ]
-              : []
-          }
+          message: 'mock snapshot empty',
+          snapshot: null
         }
       }
 
+      return {
+        success: true,
+        message: 'mock snapshot success',
+        snapshot: {
+          updatedAt: Date.now(),
+          messages: [
+            {
+              id: 'snapshot-message-1',
+              role: 'user',
+              content: '之前的对话内容',
+              timeLabel: '16:00'
+            }
+          ],
+          runTraces: []
+        }
+      }
+    })
+
+    requestGatewayMock.mockImplementation(async (payload) => {
       if (payload.method === 'chat.subscribe') {
         return {
           success: true,
@@ -1363,24 +1850,20 @@ describe('HomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建新会话' }))
 
     await waitFor(() => {
-      const createdSessionHistoryCall = requestGatewayMock.mock.calls.find(([request]) => {
-        if (request.method !== 'chat.history') {
+      const createdSessionSnapshotCall = loadSnapshotMock.mock.calls.find(([request]) => {
+        const sessionKey =
+          request && typeof request === 'object' && 'sessionKey' in request
+            ? (request as { sessionKey?: string }).sessionKey
+            : undefined
+
+        if (typeof sessionKey !== 'string') {
           return false
         }
 
-        const sessionKey =
-          request.params && typeof request.params === 'object' && request.params !== null
-            ? (request.params as { sessionKey?: string }).sessionKey
-            : undefined
-
-        return (
-          typeof sessionKey === 'string' &&
-          sessionKey !== 'main' &&
-          sessionKey !== 'agent:main:main'
-        )
+        return sessionKey.startsWith('ui:')
       })
 
-      expect(createdSessionHistoryCall?.[0].params).toMatchObject({
+      expect(createdSessionSnapshotCall?.[0]).toMatchObject({
         sessionKey: expect.stringMatching(/^ui:/)
       })
     })
@@ -1415,12 +1898,10 @@ describe('HomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: '切换会话' }))
 
     await waitFor(() => {
-      expect(requestGatewayMock).toHaveBeenCalledWith(
+      expect(loadSnapshotMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          method: 'chat.history',
-          params: {
-            sessionKey: 'agent:main:main'
-          }
+          instanceId,
+          sessionKey: 'agent:main:main'
         })
       )
     })

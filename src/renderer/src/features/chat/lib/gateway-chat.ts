@@ -16,17 +16,24 @@ type GatewayHistoryMessageLike = {
   content?: unknown
   text?: unknown
   runId?: unknown
+  run_id?: unknown
   createdAt?: unknown
+  created_at?: unknown
   timestamp?: unknown
   ts?: unknown
 }
 
 type GatewayChatEventPayload = {
   runId?: unknown
+  run_id?: unknown
   sessionKey?: unknown
+  session_key?: unknown
   state?: unknown
   message?: unknown
+  content?: unknown
+  text?: unknown
   errorMessage?: unknown
+  error_message?: unknown
 }
 
 export type ParsedGatewayChatEvent = {
@@ -40,6 +47,25 @@ export type ParsedGatewayChatEvent = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function readFirstNonEmptyString(
+  source: Record<string, unknown>,
+  keys: string[]
+): string | null {
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value !== 'string') {
+      continue
+    }
+
+    const normalized = value.trim()
+    if (normalized.length > 0) {
+      return normalized
+    }
+  }
+
+  return null
 }
 
 function parseAgentSessionKey(
@@ -178,6 +204,7 @@ function normalizeMessageText(value: string): string {
 function resolveMessageTimestamp(message: GatewayHistoryMessageLike): Date {
   return (
     normalizeTimestamp(message.createdAt) ??
+    normalizeTimestamp(message.created_at) ??
     normalizeTimestamp(message.timestamp) ??
     normalizeTimestamp(message.ts) ??
     new Date()
@@ -212,6 +239,7 @@ export function mapGatewayHistoryMessages(payload: unknown): ConversationMessage
       return []
     }
 
+    const messageRecord = message as Record<string, unknown>
     const historyMessage = message as GatewayHistoryMessageLike
     const role = typeof historyMessage.role === 'string' ? historyMessage.role.toLowerCase() : ''
     if (role !== 'assistant' && role !== 'user') {
@@ -231,7 +259,8 @@ export function mapGatewayHistoryMessages(payload: unknown): ConversationMessage
     }
 
     const idBase = typeof historyMessage.id === 'string' ? historyMessage.id : `${index}`
-    const runId = typeof historyMessage.runId === 'string' ? historyMessage.runId : undefined
+    const runId =
+      readFirstNonEmptyString(messageRecord, ['runId', 'run_id', 'runID', 'runid']) ?? undefined
 
     return [
       {
@@ -259,19 +288,24 @@ export function parseGatewayChatEvent(event: {
   }
 
   const payload = event.payload as GatewayChatEventPayload
-  const runId = typeof payload.runId === 'string' ? payload.runId : ''
+  const payloadRecord = payload as Record<string, unknown>
+  const runId = readFirstNonEmptyString(payloadRecord, ['runId', 'run_id', 'runID', 'runid']) ?? ''
   const sessionKey =
-    typeof payload.sessionKey === 'string' && payload.sessionKey.trim().length > 0
-      ? payload.sessionKey
-      : DEFAULT_CHAT_SESSION_KEY
-  const state = typeof payload.state === 'string' ? payload.state : ''
+    readFirstNonEmptyString(payloadRecord, [
+      'sessionKey',
+      'session_key',
+      'sessionID',
+      'session_id'
+    ]) ?? DEFAULT_CHAT_SESSION_KEY
+  const state = readFirstNonEmptyString(payloadRecord, ['state'])?.toLowerCase() ?? ''
 
   if (state !== 'delta' && state !== 'final' && state !== 'aborted' && state !== 'error') {
     return null
   }
 
-  const content = extractGatewayChatMessageText(payload.message)
-  const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
+  const content = extractGatewayChatMessageText(payload.message ?? payload.content ?? payload.text)
+  const errorMessage =
+    readFirstNonEmptyString(payloadRecord, ['errorMessage', 'error_message', 'error']) ?? undefined
   const timeLabel = formatConversationTime(normalizeTimestamp(event.receivedAt) ?? new Date())
 
   return {

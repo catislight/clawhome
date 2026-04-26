@@ -1,12 +1,8 @@
 import { create } from 'zustand'
 
 import { DEFAULT_CHAT_SESSION_KEY } from '@/features/chat/lib/gateway-chat'
-import type {
-  ConversationRunTrace
-} from '@/features/chat/lib/gateway-run-trace'
-import type {
-  LiveAssistantRunState
-} from '@/features/chat/lib/gateway-conversation-runtime'
+import type { ConversationRunTrace } from '@/features/chat/lib/gateway-run-trace'
+import type { LiveAssistantRunState } from '@/features/chat/lib/gateway-conversation-runtime'
 import type { ConversationMessage } from '@/shared/contracts/chat-conversation'
 
 export type GatewayConversationRuntimeState = {
@@ -16,6 +12,8 @@ export type GatewayConversationRuntimeState = {
   hasResolvedHistorySnapshot: boolean
   historyError: string | null
   submitting: boolean
+  aborting: boolean
+  activeRunId: string | null
   resettingConversation: boolean
   gatewayPullInFlight: boolean
   historyRequestId: number
@@ -57,6 +55,8 @@ export function createInitialGatewayConversationRuntimeState(): GatewayConversat
     hasResolvedHistorySnapshot: false,
     historyError: null,
     submitting: false,
+    aborting: false,
+    activeRunId: null,
     resettingConversation: false,
     gatewayPullInFlight: false,
     historyRequestId: 0,
@@ -136,13 +136,13 @@ export const useGatewayConversationStore = create<GatewayConversationStore>()((s
     const prefix = getInstanceConversationPrefix(instanceId)
     set((state) => {
       const nextConversations = Object.fromEntries(
-        Object.entries(state.conversations).filter(([conversationKey]) =>
-          !conversationKey.startsWith(prefix)
+        Object.entries(state.conversations).filter(
+          ([conversationKey]) => !conversationKey.startsWith(prefix)
         )
       )
       const nextSessionModelOverrides = Object.fromEntries(
-        Object.entries(state.sessionModelOverrideByConversationKey).filter(([conversationKey]) =>
-          !conversationKey.startsWith(prefix)
+        Object.entries(state.sessionModelOverrideByConversationKey).filter(
+          ([conversationKey]) => !conversationKey.startsWith(prefix)
         )
       )
 
@@ -174,8 +174,10 @@ export const useGatewayConversationStore = create<GatewayConversationStore>()((s
         return state
       }
 
-      const { [instanceId]: _removed, ...nextWorkspacePathByInstanceId } =
-        state.workspacePathByInstanceId
+      const nextWorkspacePathByInstanceId = {
+        ...state.workspacePathByInstanceId
+      }
+      delete nextWorkspacePathByInstanceId[instanceId]
 
       return {
         workspacePathByInstanceId: nextWorkspacePathByInstanceId
@@ -196,8 +198,10 @@ export const useGatewayConversationStore = create<GatewayConversationStore>()((s
         return state
       }
 
-      const { [conversationKey]: _removed, ...nextSessionModelOverrideByConversationKey } =
-        state.sessionModelOverrideByConversationKey
+      const nextSessionModelOverrideByConversationKey = {
+        ...state.sessionModelOverrideByConversationKey
+      }
+      delete nextSessionModelOverrideByConversationKey[conversationKey]
 
       return {
         sessionModelOverrideByConversationKey: nextSessionModelOverrideByConversationKey

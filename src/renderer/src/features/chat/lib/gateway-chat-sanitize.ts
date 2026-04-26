@@ -17,6 +17,81 @@ const INJECTED_TIMESTAMP_PREFIX_RE =
 const IMAGE_PROMPT_PREFIX = '你将收到一组图片文件。请先逐张读取图片内容，再回答用户请求。'
 const IMAGE_PROMPT_LIST_MARKER = '图片列表：'
 const IMAGE_PROMPT_REQUEST_MARKER = '用户请求：'
+const SESSION_CONTROL_COMMAND_RE = /^\/(?:new|reset)\b.*$/i
+const RUNTIME_STARTUP_SENTINELS = [
+  '[Startup context loaded by runtime]',
+  'BEGIN_QUOTED_NOTES',
+  'A new session was started via /new or /reset'
+] as const
+
+function findFirstRuntimeStartupSentinelIndex(content: string): number {
+  let firstIndex = -1
+  for (const sentinel of RUNTIME_STARTUP_SENTINELS) {
+    const nextIndex = content.indexOf(sentinel)
+    if (nextIndex < 0) {
+      continue
+    }
+
+    if (firstIndex < 0 || nextIndex < firstIndex) {
+      firstIndex = nextIndex
+    }
+  }
+
+  return firstIndex
+}
+
+function extractLeadingSessionControlCommand(content: string): string | null {
+  const firstNonEmptyLine = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+
+  if (!firstNonEmptyLine) {
+    return null
+  }
+
+  if (!SESSION_CONTROL_COMMAND_RE.test(firstNonEmptyLine)) {
+    return null
+  }
+
+  return firstNonEmptyLine
+}
+
+function stripRuntimeStartupScaffolding(content: string): string {
+  const stripped = content
+    .replace(/^\s*\[Startup context loaded by runtime\][^\n]*\n?/gim, '')
+    .replace(/^\s*\[Untrusted daily memory:[^\n]*\n?/gim, '')
+    .replace(/^\s*BEGIN_QUOTED_NOTES[\s\S]*?END_QUOTED_NOTES\s*/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  return stripped || content
+}
+
+function stripInjectedRuntimeStartupContext(content: string): string {
+  const sentinelIndex = findFirstRuntimeStartupSentinelIndex(content)
+  if (sentinelIndex < 0) {
+    return content
+  }
+
+  const prefix = content.slice(0, sentinelIndex)
+  const prefixedCommand = extractLeadingSessionControlCommand(prefix)
+  if (prefixedCommand) {
+    return prefixedCommand
+  }
+
+  const fullCommand = extractLeadingSessionControlCommand(content)
+  if (fullCommand) {
+    return fullCommand
+  }
+
+  const preservedPrefix = prefix.trim()
+  if (preservedPrefix) {
+    return preservedPrefix
+  }
+
+  return stripRuntimeStartupScaffolding(content)
+}
 
 function stripLeadingTrustedSystemEventBlock(content: string): string {
   const lines = content.split('\n')
@@ -145,7 +220,9 @@ function parseInjectedImageUnderstandingPrompt(content: string): SanitizedGatewa
 }
 
 export function sanitizeGatewayHistoryUserMessage(content: string): SanitizedGatewayUserMessage {
-  const sanitized = stripMessageIdHints(stripEnvelope(stripInboundMetadata(content)))
+  const sanitized = stripInjectedRuntimeStartupContext(
+    stripMessageIdHints(stripEnvelope(stripInboundMetadata(content)))
+  )
   const injectedImageMessage = parseInjectedImageUnderstandingPrompt(sanitized)
   if (injectedImageMessage) {
     return injectedImageMessage

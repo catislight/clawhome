@@ -96,6 +96,8 @@ const APP_I18N_MESSAGES = {
     'chat.slash.uploadFile': '上传文件',
     'chat.slash.send': '发送',
     'chat.slash.sending': '发送中',
+    'chat.slash.stop': '停止',
+    'chat.slash.stopping': '停止中',
     'chat.sendButton.defaultLabel': '发送',
     'chat.trace.readingSkill': '正在阅读 {{skill}} skill',
     'chat.trace.callingTool': '正在调用 {{tool}} 工具',
@@ -113,6 +115,11 @@ const APP_I18N_MESSAGES = {
     'chat.assistantAction.copyReply': '复制回复',
     'chat.assistantAction.replyFavorited': '已收藏回复',
     'chat.assistantAction.favoriteReply': '收藏回复',
+    'chat.assistantAction.openToolLogs': '查看命令日志',
+    'chat.toolLogs.title': '命令调用日志',
+    'chat.toolLogs.close': '关闭命令日志',
+    'chat.toolLogs.empty': '当前回复没有可展示的命令调用日志。',
+    'chat.toolLogs.emptyContent': '无命令内容',
     'chat.slashMenu.aria': '斜杠菜单',
     'chat.slashMenu.noMatches': '无匹配结果',
     'chat.dragDrop.error.noParser': '未找到可用的解析器',
@@ -315,7 +322,8 @@ const APP_I18N_MESSAGES = {
     'cron.page.content.emptyNoJobsTitle': '还没有定时任务',
     'cron.page.content.emptySelectJobTitle': '请选择左侧任务',
     'cron.page.content.emptyNoJobsDescription': '点击左侧顶部新增按钮，创建第一条定时任务。',
-    'cron.page.content.emptySelectJobDescription': '选中任务后，右侧会展示这个任务的最新输出和配置操作。',
+    'cron.page.content.emptySelectJobDescription':
+      '选中任务后，右侧会展示这个任务的最新输出和配置操作。',
     'cron.page.runHistory.emptyTitle': '当前任务还没有输出',
     'cron.page.runHistory.emptyDescription':
       '这里会按执行批次展示该任务的历史 assistant 输出，不展示输入区。',
@@ -860,7 +868,8 @@ const APP_I18N_MESSAGES = {
     'settings.error.modelChoicesLoadPrefix': '模型列表读取失败：{{message}}',
     'settings.error.form.contextTokensMustBeNumber': 'agents.defaults.contextTokens 必须为数字。',
     'settings.error.form.maxConcurrentMustBeNumber': 'agents.defaults.maxConcurrent 必须为数字。',
-    'settings.error.form.toolsAllowDenyOverlap': 'tools.allow 与 tools.deny 不能同时包含 "{{overlap}}"。',
+    'settings.error.form.toolsAllowDenyOverlap':
+      'tools.allow 与 tools.deny 不能同时包含 "{{overlap}}"。',
     'settings.error.form.elevatedAllowFromMustBeObject': 'tools.elevated.allowFrom 必须是对象。',
     'settings.error.form.elevatedAllowFromInvalidJson': 'tools.elevated.allowFrom JSON 格式错误。',
     'settings.error.draft.elevatedAllowFromInvalidJson': 'tools.elevated.allowFrom 不是合法 JSON。',
@@ -991,7 +1000,8 @@ const APP_I18N_MESSAGES = {
     'chat.session.deleteFailed': 'Delete failed',
     'chat.session.deleteConfirmButton': 'Delete Session',
     'chat.newSession.title': 'Create new session',
-    'chat.newSession.description': 'The current session will stay in history, and new messages will go to a fresh session.',
+    'chat.newSession.description':
+      'The current session will stay in history, and new messages will go to a fresh session.',
     'chat.newSession.nameLabel': 'Session name',
     'chat.newSession.namePlaceholder': 'Optional, auto-named by default',
     'chat.newSession.cancel': 'Cancel',
@@ -1008,6 +1018,8 @@ const APP_I18N_MESSAGES = {
     'chat.slash.uploadFile': 'Upload file',
     'chat.slash.send': 'Send',
     'chat.slash.sending': 'Sending',
+    'chat.slash.stop': 'Stop',
+    'chat.slash.stopping': 'Stopping',
     'chat.sendButton.defaultLabel': 'Send',
     'chat.trace.readingSkill': 'Reading {{skill}} skill',
     'chat.trace.callingTool': 'Running {{tool}} tool',
@@ -1025,6 +1037,11 @@ const APP_I18N_MESSAGES = {
     'chat.assistantAction.copyReply': 'Copy reply',
     'chat.assistantAction.replyFavorited': 'Reply favorited',
     'chat.assistantAction.favoriteReply': 'Favorite reply',
+    'chat.assistantAction.openToolLogs': 'View command logs',
+    'chat.toolLogs.title': 'Command Call Logs',
+    'chat.toolLogs.close': 'Close command logs',
+    'chat.toolLogs.empty': 'No command call logs are available for this reply.',
+    'chat.toolLogs.emptyContent': 'No command content',
     'chat.slashMenu.aria': 'Slash menu',
     'chat.slashMenu.noMatches': 'No matches',
     'chat.dragDrop.error.noParser': 'No available parser found',
@@ -1037,9 +1054,11 @@ const APP_I18N_MESSAGES = {
     'chat.slash.default.statusDescription': 'View current status',
     'instances.connectionPanel.description.needConfig': 'Configure the connection first.',
     'instances.connectionPanel.description.connecting': 'Connecting, please wait.',
-    'instances.connectionPanel.description.offline': 'The instance is offline. Reconnect to continue.',
+    'instances.connectionPanel.description.offline':
+      'The instance is offline. Reconnect to continue.',
     'instances.connectionPanel.description.retry': 'Try again or check your connection settings.',
-    'instances.connectionPanel.description.ready': 'Connection settings are saved. You can connect directly.',
+    'instances.connectionPanel.description.ready':
+      'Connection settings are saved. You can connect directly.',
     'instances.connectionPanel.status.notConfigured': 'Not Configured',
     'instances.connectionPanel.status.pending': 'Pending',
     'instances.connectionPanel.status.connected': 'Connected',
@@ -1058,17 +1077,20 @@ const APP_I18N_MESSAGES = {
     'instances.error.connectionConfigRequired': 'Configure the connection first.',
     'instances.error.connectFailed': 'Connection failed. Please try again later.',
     'instances.error.disconnectFailed': 'Failed to disconnect. Please try again later.',
-    'instances.error.restartReconnectFailed': 'Reconnect failed after Gateway restart. Please try again later.',
+    'instances.error.restartReconnectFailed':
+      'Reconnect failed after Gateway restart. Please try again later.',
     'instances.error.restartReconnectFailedWithReason':
       'Gateway restarted, but reconnect failed: {{message}}',
     'instances.page.title': 'Instance Management',
     'instances.page.action.create': 'Create OpenClaw',
     'instances.page.confirmDelete': 'Delete instance "{{name}}"?',
-    'instances.page.error.singleLocalOnly': 'Only one local instance is allowed. Use a remote connection instead.',
+    'instances.page.error.singleLocalOnly':
+      'Only one local instance is allowed. Use a remote connection instead.',
     'instances.page.error.createFailed': 'Failed to create instance. Please try again later.',
     'instances.page.error.connectAfterCreateFailed':
       'Connection failed. Check your config and retry. {{message}}',
-    'instances.setup.step.basicDescription': 'Fill in instance info and choose a connection method.',
+    'instances.setup.step.basicDescription':
+      'Fill in instance info and choose a connection method.',
     'instances.setup.step.localDescription':
       'Scanning local OpenClaw and credentials, then connecting automatically.',
     'instances.setup.step.remoteDescription':
@@ -1085,8 +1107,7 @@ const APP_I18N_MESSAGES = {
     'instances.setup.option.local.descriptionDisabled':
       'A local instance already exists. Only one local instance is allowed.',
     'instances.setup.option.ssh.title': 'Remote Connection',
-    'instances.setup.option.ssh.description':
-      'Connect with remote host and Gateway settings.',
+    'instances.setup.option.ssh.description': 'Connect with remote host and Gateway settings.',
     'instances.setup.field.instanceName': 'Instance Name',
     'instances.setup.field.instanceName.placeholder': 'Production Cluster',
     'instances.setup.field.instanceDescription': 'Instance Description (Optional)',
@@ -1588,8 +1609,7 @@ const APP_I18N_MESSAGES = {
     'agents.error.deleteMemoryWorkspaceMissing':
       'No workspace path available for deleting memory files.',
     'agents.error.deleteMemoryFileFailed': 'Failed to delete memory file.',
-    'agents.error.deleteMemoryFileNotFound':
-      'No deletable memory file found: {{fileName}}',
+    'agents.error.deleteMemoryFileNotFound': 'No deletable memory file found: {{fileName}}',
     'agents.error.api.listInvalidPayload': 'Invalid response format from agents.list.',
     'agents.error.api.createInvalidPayload': 'Invalid response format from agents.create.',
     'agents.error.api.filesListInvalidPayload': 'Invalid response format from agents.files.list.',
@@ -1625,7 +1645,8 @@ const APP_I18N_MESSAGES = {
     'knowledgeBase.empty.templates.title': 'No prompt templates yet',
     'knowledgeBase.empty.favorites.description':
       'After you click "Favorite reply" in Chat, it will appear here.',
-    'knowledgeBase.empty.templates.description': 'Create a prompt template first, then reuse it anytime.',
+    'knowledgeBase.empty.templates.description':
+      'Create a prompt template first, then reuse it anytime.',
     'knowledgeBase.error.editor.requiredFields': 'Please fill in both title and content.',
     'knowledgeBase.error.editor.saveFailed': 'Save failed. Please check your input.',
     'knowledgeBase.error.editor.missingTemplate':
@@ -1653,8 +1674,7 @@ const APP_I18N_MESSAGES = {
     'knowledgeBase.editor.submit.create': 'Save template',
     'knowledgeBase.editor.submit.edit': 'Update template',
     'logs.page.noInstance': 'Connect an instance before using Logs.',
-    'logs.page.needConnectionDescription':
-      'Connect this instance first to view gateway logs.',
+    'logs.page.needConnectionDescription': 'Connect this instance first to view gateway logs.',
     'logs.stats.total': 'Total',
     'logs.stats.error': 'Errors',
     'logs.stats.warn': 'Warnings',
@@ -1673,8 +1693,7 @@ const APP_I18N_MESSAGES = {
     'logs.empty.filtered': 'No logs match current filters',
     'logs.empty.noneDescription':
       'Trigger a request in Chat or Jobs first, then come back to inspect logs.',
-    'logs.empty.filteredDescription':
-      'Try loosening filters or clearing keywords and retry.',
+    'logs.empty.filteredDescription': 'Try loosening filters or clearing keywords and retry.',
     'logs.payload.detail': 'Payload details',
     'logs.payload.noneDetail': 'This log has no attached payload',
     'logs.copy.copied': 'Copied',
@@ -1818,17 +1837,16 @@ const APP_I18N_MESSAGES = {
     'settings.error.draft.elevatedAllowFromMustBeObject':
       'tools.elevated.allowFrom must be an object.',
     'settings.error.draft.modelRefRequired': 'Model ref is required.',
-    'settings.error.draft.modelParamsMustBeObject':
-      'Model params must be a JSON object.',
-    'settings.error.draft.modelParamsInvalidJson':
-      'Invalid JSON format for model params.',
+    'settings.error.draft.modelParamsMustBeObject': 'Model params must be a JSON object.',
+    'settings.error.draft.modelParamsInvalidJson': 'Invalid JSON format for model params.',
     'settings.form.group.basic': 'Basic Fields',
     'settings.form.group.model': 'Model Fields',
     'settings.form.group.modelAdvanced': 'Model Extensions',
     'settings.form.group.tools': 'Tool Permissions',
     'settings.form.group.execution': 'Execution Policy',
     'settings.form.workspace.label': 'Default workspace',
-    'settings.form.workspace.desc': 'Default directory for new tasks; leave empty to use instance cwd.',
+    'settings.form.workspace.desc':
+      'Default directory for new tasks; leave empty to use instance cwd.',
     'settings.form.repoRoot.label': 'Repo root override',
     'settings.form.repoRoot.desc': 'Override repo root to improve search and patch targeting.',
     'settings.form.modelPrimary.label': 'Default primary model',
@@ -1845,7 +1863,8 @@ const APP_I18N_MESSAGES = {
     'settings.form.pdfModel.desc': 'Model chain for PDF tasks (primary + fallbacks).',
     'settings.form.pdfModel.dialogTitle': 'Configure PDF model chain',
     'settings.form.contextTokens.label': 'Context window limit',
-    'settings.form.contextTokens.desc': 'Per-request context limit. Higher means more context and cost.',
+    'settings.form.contextTokens.desc':
+      'Per-request context limit. Higher means more context and cost.',
     'settings.form.maxConcurrent.label': 'Global concurrency limit',
     'settings.form.maxConcurrent.desc': 'Maximum parallel tasks to avoid overloading the instance.',
     'settings.form.toolsProfile.label': 'Tool profile preset',

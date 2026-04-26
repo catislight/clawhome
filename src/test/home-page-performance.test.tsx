@@ -33,10 +33,13 @@ vi.mock('../renderer/src/features/chat/components/editor/SlashInput', () => ({
     submitLabel?: string
     disabled?: boolean
     submitting?: boolean
+    stopVisible?: boolean
+    stopping?: boolean
+    onStop?: () => void
     footerLeading?: ReactNode
   }): React.JSX.Element {
     const [value, setValue] = useState('')
-    const locked = Boolean(props.disabled || props.submitting)
+    const locked = Boolean(props.disabled || props.submitting || props.stopping)
 
     return (
       <form
@@ -62,9 +65,15 @@ vi.mock('../renderer/src/features/chat/components/editor/SlashInput', () => ({
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
-        <button type="submit" aria-label={props.submitLabel ?? '发送'} disabled={locked}>
-          {props.submitLabel ?? '发送'}
-        </button>
+        {props.stopVisible ? (
+          <button type="button" aria-label="停止" disabled={locked} onClick={() => props.onStop?.()}>
+            停止
+          </button>
+        ) : (
+          <button type="submit" aria-label={props.submitLabel ?? '发送'} disabled={locked}>
+            {props.submitLabel ?? '发送'}
+          </button>
+        )}
       </form>
     )
   }

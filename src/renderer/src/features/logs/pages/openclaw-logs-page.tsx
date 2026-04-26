@@ -154,8 +154,12 @@ function OpenClawLogsPage(): React.JSX.Element {
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={logsController.refreshing ? t('logs.action.refreshing') : t('logs.action.refresh')}
-                title={logsController.refreshing ? t('logs.action.refreshing') : t('logs.action.refresh')}
+                aria-label={
+                  logsController.refreshing ? t('logs.action.refreshing') : t('logs.action.refresh')
+                }
+                title={
+                  logsController.refreshing ? t('logs.action.refreshing') : t('logs.action.refresh')
+                }
                 className="size-8 rounded-[0.65rem] text-muted-foreground hover:bg-black/[0.04] hover:text-foreground"
                 disabled={
                   logsController.loading || logsController.refreshing || logsController.clearing
@@ -173,7 +177,9 @@ function OpenClawLogsPage(): React.JSX.Element {
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={logsController.clearing ? t('logs.action.clearing') : t('logs.action.clear')}
+                aria-label={
+                  logsController.clearing ? t('logs.action.clearing') : t('logs.action.clear')
+                }
                 title={logsController.clearing ? t('logs.action.clearing') : t('logs.action.clear')}
                 className="size-8 rounded-[0.65rem] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                 disabled={logsController.clearing || logsController.logs.length === 0}
@@ -242,7 +248,9 @@ function OpenClawLogsPage(): React.JSX.Element {
             ) : filteredLogs.length === 0 ? (
               <div className="flex h-full min-h-[220px] flex-col items-center justify-center px-6 text-center">
                 <p className="text-sm font-medium text-foreground">
-                  {logsController.logs.length === 0 ? t('logs.empty.none') : t('logs.empty.filtered')}
+                  {logsController.logs.length === 0
+                    ? t('logs.empty.none')
+                    : t('logs.empty.filtered')}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {logsController.logs.length === 0
@@ -256,7 +264,10 @@ function OpenClawLogsPage(): React.JSX.Element {
                   const expanded = expandedLogId === log.id
 
                   return (
-                    <article key={log.id} className="border-b border-black/6 last:border-b-0">
+                    <article
+                      key={log.id}
+                      className="min-w-0 border-b border-black/6 last:border-b-0"
+                    >
                       <button
                         type="button"
                         className="w-full px-4 py-3 text-left transition-colors hover:bg-black/[0.02]"
@@ -311,10 +322,12 @@ function OpenClawLogsPage(): React.JSX.Element {
                       </button>
 
                       {expanded ? (
-                        <div className="border-t border-black/6 bg-[#FAFBFD] px-4 py-3">
+                        <div className="min-w-0 border-t border-black/6 bg-[#FAFBFD] px-4 py-3">
                           <div className="mb-2 flex items-center justify-between gap-2">
                             <p className="text-xs text-muted-foreground">
-                              {log.payloadText ? t('logs.payload.detail') : t('logs.payload.noneDetail')}
+                              {log.payloadText
+                                ? t('logs.payload.detail')
+                                : t('logs.payload.noneDetail')}
                             </p>
                             <Button
                               type="button"
@@ -331,7 +344,7 @@ function OpenClawLogsPage(): React.JSX.Element {
                             </Button>
                           </div>
 
-                          <pre className="max-h-52 overflow-auto rounded-[0.65rem] border border-black/8 bg-white px-3 py-2 text-[12px] leading-5 text-slate-700">
+                          <pre className="max-h-52 w-full max-w-full overflow-auto whitespace-pre-wrap break-all rounded-[0.65rem] border border-black/8 bg-white px-3 py-2 text-[12px] leading-5 text-slate-700">
                             {log.payloadText ?? t('logs.payload.none')}
                           </pre>
                         </div>

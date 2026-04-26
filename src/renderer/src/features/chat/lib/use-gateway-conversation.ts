@@ -1,4 +1,12 @@
-import { startTransition, useCallback, useEffect, useMemo, type SetStateAction } from 'react'
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction
+} from 'react'
 
 import {
   DEFAULT_CHAT_SESSION_KEY,
@@ -6,7 +14,6 @@ import {
   isSilentAssistantReply,
   isSilentAssistantReplyFragment,
   isSameGatewaySessionKey,
-  mapGatewayHistoryMessages,
   parseGatewayChatEvent
 } from '@/features/chat/lib/gateway-chat'
 import {
@@ -16,7 +23,6 @@ import {
   GATEWAY_REQUEST_TIMEOUT_MS
 } from '@/features/chat/lib/chat-constants'
 import {
-  mapGatewayHistoryMessageTraces,
   parseGatewayAgentEvent,
   reduceRunTracesFromGatewayEvents,
   removeRunTracesByRunId,
@@ -44,6 +50,8 @@ import {
 import type { ChatSubmitImage, ChatSubmitTag } from '@/features/chat/lib/chat-send-types'
 import type { SshConnectionFormValues } from '@/features/instances/model/ssh-connection'
 import {
+  loadChatConversationSnapshot,
+  saveChatConversationSnapshot,
   getAppApiUnavailableMessage,
   hasAppApiMethod,
   pullGatewayEvents as pullGatewayEventsViaBridge
@@ -56,10 +64,6 @@ import {
   type GatewayConversationRuntimeState,
   useGatewayConversationStore
 } from '@/stores/use-gateway-conversation-store'
-import {
-  useStreamingHistoryReconcile,
-  type StreamingHistorySnapshot
-} from '@/features/chat/lib/use-streaming-history-reconcile'
 
 type GatewaySessionEventLike = {
   event: string
@@ -80,8 +84,11 @@ type UseGatewayConversationResult = {
   showHistoryLoadingState: boolean
   historyError: string | null
   submitting: boolean
+  aborting: boolean
+  isConversationRunning: boolean
   resettingConversation: boolean
   canResetConversation: boolean
+  abortConversation: () => Promise<void>
   sendMessage: (nextValue: string, options?: SendMessageOptions) => Promise<void>
   resetConversation: () => Promise<void>
 }
@@ -93,25 +100,131 @@ type SendMessageOptions = {
   connectionConfig?: SshConnectionFormValues | null
 }
 
-function hasPendingLocalConversationMessages(messages: ConversationMessage[]): boolean {
-  return messages.some((message) => message.status === 'sending' || message.status === 'streaming')
+function hasAssistantRunIds(messages: ConversationMessage[]): boolean {
+  return messages.some((message) => message.role === 'assistant' && Boolean(message.runId?.trim()))
 }
 
-function shouldApplyAuthoritativeHistorySnapshot(
-  runtime: GatewayConversationRuntimeState,
-  mappedMessages: ConversationMessage[]
-): boolean {
-  if (!hasPendingLocalConversationMessages(runtime.messages)) {
-    return true
+function toPersistedConversationSnapshot(
+  messages: ConversationMessage[],
+  messageTraces: Record<string, ConversationRunTrace>
+): {
+  updatedAt: number
+  messages: Array<{
+    id: string
+    role: 'assistant' | 'user'
+    content: string
+    timeLabel: string
+    status?: 'sending' | 'sent' | 'streaming' | 'error'
+    runId?: string
+    tags?: Array<{
+      type: 'image' | 'attachment' | 'text'
+      label: string
+      previewSrc?: string
+      relativePath?: string
+      absolutePath?: string
+    }>
+  }>
+  runTraces: Array<ConversationRunTrace & { runId: string }>
+} {
+  return {
+    updatedAt: Date.now(),
+    messages: messages.flatMap((message) => {
+      if (message.role !== 'assistant' && message.role !== 'user') {
+        return []
+      }
+
+      const status =
+        message.status === 'sending' ||
+        message.status === 'sent' ||
+        message.status === 'streaming' ||
+        message.status === 'error'
+          ? message.status
+          : undefined
+
+      return [
+        {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          timeLabel: message.timeLabel,
+          ...(status ? { status } : {}),
+          ...(message.runId?.trim() ? { runId: message.runId.trim() } : {}),
+          ...(message.tags && message.tags.length > 0 ? { tags: message.tags } : {})
+        }
+      ]
+    }),
+    runTraces: Object.entries(messageTraces).flatMap(([runId, trace]) => {
+      const normalizedRunId = runId.trim()
+      if (!normalizedRunId) {
+        return []
+      }
+
+      return [
+        {
+          runId: normalizedRunId,
+          ...trace
+        }
+      ]
+    })
+  }
+}
+
+function mapPersistedRunTraces(
+  runTraces: Array<ConversationRunTrace & { runId: string }>
+): Record<string, ConversationRunTrace> {
+  return runTraces.reduce<Record<string, ConversationRunTrace>>((current, runTrace) => {
+    const normalizedRunId = runTrace.runId.trim()
+    if (!normalizedRunId) {
+      return current
+    }
+
+    current[normalizedRunId] = {
+      skills: runTrace.skills,
+      tools: runTrace.tools,
+      toolLogs: runTrace.toolLogs,
+      activeToolCallIds: runTrace.activeToolCallIds,
+      activeToolCalls: runTrace.activeToolCalls,
+      isGenerating: runTrace.isGenerating
+    }
+    return current
+  }, {})
+}
+
+function finalizeRunTraces(
+  traces: Record<string, ConversationRunTrace>,
+  completedRunIds: Set<string>
+): Record<string, ConversationRunTrace> {
+  if (completedRunIds.size === 0) {
+    return traces
   }
 
-  if (runtime.submitting) {
-    return false
+  let hasChanged = false
+  const nextTraces: Record<string, ConversationRunTrace> = { ...traces }
+
+  for (const runId of completedRunIds) {
+    const currentTrace = nextTraces[runId]
+    if (!currentTrace) {
+      continue
+    }
+
+    if (
+      currentTrace.activeToolCallIds.length === 0 &&
+      currentTrace.activeToolCalls.length === 0 &&
+      !currentTrace.isGenerating
+    ) {
+      continue
+    }
+
+    nextTraces[runId] = {
+      ...currentTrace,
+      activeToolCallIds: [],
+      activeToolCalls: [],
+      isGenerating: false
+    }
+    hasChanged = true
   }
 
-  // Keep optimistic local cards when history is still empty (reply in progress),
-  // but trust history once it has concrete transcript items.
-  return mappedMessages.length > 0
+  return hasChanged ? nextTraces : traces
 }
 
 export function useGatewayConversation({
@@ -141,7 +254,13 @@ export function useGatewayConversation({
     pendingHistoryFallbackRunIdToExpiresAt
   } = conversationRuntime
   const submitting = conversationRuntime.submitting
+  const aborting = conversationRuntime.aborting
   const resettingConversation = conversationRuntime.resettingConversation
+  const localSnapshotHydratedConversationKeyRef = useRef<string | null>(null)
+  const localSnapshotHydratedRef = useRef(false)
+  const [localSnapshotHydratedConversationKey, setLocalSnapshotHydratedConversationKey] = useState<
+    string | null
+  >(null)
 
   useEffect(() => {
     if (!conversationRuntimeKey) {
@@ -150,6 +269,12 @@ export function useGatewayConversation({
 
     ensureConversation(conversationRuntimeKey)
   }, [conversationRuntimeKey, ensureConversation])
+
+  useEffect(() => {
+    localSnapshotHydratedConversationKeyRef.current = conversationRuntimeKey
+    localSnapshotHydratedRef.current = false
+    setLocalSnapshotHydratedConversationKey(null)
+  }, [conversationRuntimeKey])
 
   const getConversationRuntime = useCallback((): GatewayConversationRuntimeState => {
     if (!conversationRuntimeKey) {
@@ -174,7 +299,9 @@ export function useGatewayConversation({
   )
 
   const updateConversationRuntime = useCallback(
-    (updater: (current: GatewayConversationRuntimeState) => GatewayConversationRuntimeState): void => {
+    (
+      updater: (current: GatewayConversationRuntimeState) => GatewayConversationRuntimeState
+    ): void => {
       if (!conversationRuntimeKey) {
         return
       }
@@ -205,9 +332,11 @@ export function useGatewayConversation({
         ...current,
         messageTraces:
           typeof nextState === 'function'
-            ? (nextState as (
-                traces: Record<string, ConversationRunTrace>
-              ) => Record<string, ConversationRunTrace>)(current.messageTraces)
+            ? (
+                nextState as (
+                  traces: Record<string, ConversationRunTrace>
+                ) => Record<string, ConversationRunTrace>
+              )(current.messageTraces)
             : nextState
       }))
     },
@@ -250,6 +379,15 @@ export function useGatewayConversation({
     [patchConversationRuntime]
   )
 
+  const setAborting = useCallback(
+    (nextAborting: boolean): void => {
+      patchConversationRuntime({
+        aborting: nextAborting
+      })
+    },
+    [patchConversationRuntime]
+  )
+
   const setResettingConversation = useCallback(
     (nextResettingConversation: boolean): void => {
       patchConversationRuntime({
@@ -276,61 +414,20 @@ export function useGatewayConversation({
       return !(message.runId && pendingHistoryFallbackRunIdSet.has(message.runId))
     })
   }, [messages, pendingHistoryFallbackRunIdSet])
+  const isConversationActive = enabled && Boolean(instanceId)
+  const isConversationRunning =
+    isConversationActive && (submitting || aborting || hasStreamingAssistantMessage)
   const chatPollIntervalMs =
-    hasStreamingAssistantMessage || submitting
+    hasStreamingAssistantMessage || submitting || aborting
       ? GATEWAY_CHAT_POLL_INTERVAL_MS.busy
       : GATEWAY_CHAT_POLL_INTERVAL_MS.idle
-  const isConversationActive = enabled && Boolean(instanceId)
   const showHistoryLoadingState =
     isConversationActive &&
     !historyError &&
     messages.length === 0 &&
     (loadingHistory || !hasResolvedHistorySnapshot)
   const canResetConversation =
-    isConversationActive && !submitting && !resettingConversation && !hasStreamingAssistantMessage
-
-  const applyStreamingHistorySnapshot = useCallback((snapshot: StreamingHistorySnapshot): void => {
-    const currentRuntime = getConversationRuntime()
-    const pendingHistoryFallbackRunIdToExpiresAt = {
-      ...currentRuntime.pendingHistoryFallbackRunIdToExpiresAt
-    }
-    const pendingRunIds = Object.keys(pendingHistoryFallbackRunIdToExpiresAt)
-    if (pendingRunIds.length > 0) {
-      const resolvedAssistantRunIds = new Set(
-        snapshot.messages.flatMap((message) =>
-          message.role === 'assistant' &&
-          typeof message.runId === 'string' &&
-          message.content.trim().length > 0
-            ? [message.runId]
-            : []
-        )
-      )
-
-      for (const runId of pendingRunIds) {
-        if (resolvedAssistantRunIds.has(runId)) {
-          delete pendingHistoryFallbackRunIdToExpiresAt[runId]
-        }
-      }
-    }
-
-    startTransition(() => {
-      updateConversationRuntime((current) => ({
-        ...current,
-        messages: snapshot.messages,
-        messageTraces: snapshot.messageTraces,
-        pendingHistoryFallbackRunIdToExpiresAt
-      }))
-    })
-  }, [getConversationRuntime, updateConversationRuntime])
-
-  const { markPendingStreamingHistoryReconcile } = useStreamingHistoryReconcile({
-    enabled: isConversationActive && !resettingConversation,
-    instanceId,
-    sessionKey,
-    hasStreamingAssistantMessage,
-    submitting,
-    onHistoryReconciled: applyStreamingHistorySnapshot
-  })
+    isConversationActive && !resettingConversation && !isConversationRunning
 
   const pullGatewayEvents = useCallback(
     async (targetInstanceId: string): Promise<void> => {
@@ -382,9 +479,6 @@ export function useGatewayConversation({
         }
 
         if (response.events.length === 0) {
-          if (Object.keys(pendingHistoryFallbackRunIdToExpiresAt).length > 0) {
-            markPendingStreamingHistoryReconcile()
-          }
           patchConversationRuntime({
             pendingHistoryFallbackRunIdToExpiresAt
           })
@@ -474,7 +568,10 @@ export function useGatewayConversation({
                 now + NON_STREAMING_HISTORY_FALLBACK_WINDOW_MS
             }
 
-            if (parsedAgentEvent.phase === 'end' && streamingHistoryRunIds.has(parsedAgentEvent.runId)) {
+            if (
+              parsedAgentEvent.phase === 'end' &&
+              streamingHistoryRunIds.has(parsedAgentEvent.runId)
+            ) {
               completedStreamingRunIds.add(parsedAgentEvent.runId)
             }
 
@@ -657,7 +754,9 @@ export function useGatewayConversation({
                 continue
               }
 
-              if (agentDrivenRunIds.has(parsed.runId) || liveRunState?.sawAssistantEvent) {
+              const isAgentDrivenRun =
+                agentDrivenRunIds.has(parsed.runId) || Boolean(liveRunState?.sawAssistantEvent)
+              if (isAgentDrivenRun && parsed.state === 'delta') {
                 continue
               }
 
@@ -678,8 +777,31 @@ export function useGatewayConversation({
                 continue
               }
 
+              const hasVisibleCurrentMessage = nextMessages.some(
+                (message) =>
+                  message.id === assistantMessageId &&
+                  message.role === 'assistant' &&
+                  message.content.trim().length > 0
+              )
+
               if (!content) {
-                if (parsed.state !== 'error' && pendingHistoryFallbackRunIdToExpiresAt[parsed.runId]) {
+                if (parsed.state !== 'error' && hasVisibleCurrentMessage) {
+                  nextMessages = updateAssistantMessageStatus(
+                    nextMessages,
+                    assistantMessageId,
+                    undefined
+                  )
+                  completedStreamingRunIds.add(parsed.runId)
+                  streamingHistoryRunIds.delete(parsed.runId)
+                  delete pendingHistoryFallbackRunIdToExpiresAt[parsed.runId]
+                  delete liveRunStates[parsed.runId]
+                  continue
+                }
+
+                if (
+                  parsed.state !== 'error' &&
+                  pendingHistoryFallbackRunIdToExpiresAt[parsed.runId]
+                ) {
                   nextMessages = upsertAssistantMessage(nextMessages, {
                     id: assistantMessageId,
                     runId: parsed.runId,
@@ -710,6 +832,11 @@ export function useGatewayConversation({
               })
 
               if (parsed.state !== 'delta') {
+                if (parsed.state === 'final') {
+                  completedStreamingRunIds.add(parsed.runId)
+                  streamingHistoryRunIds.delete(parsed.runId)
+                  delete pendingHistoryFallbackRunIdToExpiresAt[parsed.runId]
+                }
                 delete liveRunStates[parsed.runId]
               }
             }
@@ -718,9 +845,12 @@ export function useGatewayConversation({
           })
 
           setMessageTraces((current) =>
-            removeRunTracesByRunId(
-              reduceRunTracesFromGatewayEvents(current, events, sessionKey),
-              abortedRunIds
+            finalizeRunTraces(
+              removeRunTracesByRunId(
+                reduceRunTracesFromGatewayEvents(current, events, sessionKey),
+                abortedRunIds
+              ),
+              completedStreamingRunIds
             )
           )
 
@@ -768,16 +898,26 @@ export function useGatewayConversation({
               }
 
               return nextPendingHistoryFallbackRunIdToExpiresAt
-            })()
+            })(),
+            activeRunId: (() => {
+              const currentActiveRunId = current.activeRunId
+              if (currentActiveRunId && currentActiveRunId in liveRunStates) {
+                return currentActiveRunId
+              }
+
+              if (
+                currentActiveRunId &&
+                (abortedRunIds.includes(currentActiveRunId) ||
+                  completedStreamingRunIds.has(currentActiveRunId))
+              ) {
+                return null
+              }
+
+              return Object.keys(liveRunStates).at(-1) ?? null
+            })(),
+            aborting: current.aborting && Object.keys(liveRunStates).length > 0
           }))
         })
-
-        if (
-          completedStreamingRunIds.size > 0 ||
-          Object.keys(pendingHistoryFallbackRunIdToExpiresAt).length > 0
-        ) {
-          markPendingStreamingHistoryReconcile()
-        }
       } finally {
         patchConversationRuntime({
           gatewayPullInFlight: false
@@ -786,7 +926,6 @@ export function useGatewayConversation({
     },
     [
       getConversationRuntime,
-      markPendingStreamingHistoryReconcile,
       patchConversationRuntime,
       sessionKey,
       setMessageTraces,
@@ -827,21 +966,10 @@ export function useGatewayConversation({
 
       if (!hasAppApiMethod('requestGateway')) {
         const errorMessage = getAppApiUnavailableMessage('requestGateway')
-        if (clearMessages) {
-          updateConversationRuntime((current) => ({
-            ...current,
-            messages: [],
-            messageTraces: {},
-            liveAssistantRunStateByRunId: {},
-            streamingHistoryRunIds: [],
-            pendingHistoryFallbackRunIdToExpiresAt: {},
-            hasResolvedHistorySnapshot: false
-          }))
-        }
-        setLoadingHistory(false)
         setHistoryError(errorMessage)
         setHasResolvedHistorySnapshot(true)
-        throw new Error(errorMessage)
+        setLoadingHistory(false)
+        return
       }
 
       if (clearMessages) {
@@ -851,7 +979,9 @@ export function useGatewayConversation({
           messageTraces: {},
           liveAssistantRunStateByRunId: {},
           streamingHistoryRunIds: [],
-          pendingHistoryFallbackRunIdToExpiresAt: {}
+          pendingHistoryFallbackRunIdToExpiresAt: {},
+          activeRunId: null,
+          aborting: false
         }))
       }
       setHasResolvedHistorySnapshot(false)
@@ -859,58 +989,25 @@ export function useGatewayConversation({
       setLoadingHistory(true)
 
       try {
-        try {
-          await requestGatewayMethod(
-            targetInstanceId,
-            'chat.subscribe',
-            {
-              sessionKey
-            },
-            {
-              timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.subscribe
-            }
-          )
-        } catch {
-          // Ignore subscribe failures and continue with polling.
-        }
-
-        const historyPayload = await requestGatewayMethod(
+        await requestGatewayMethod(
           targetInstanceId,
-          'chat.history',
+          'chat.subscribe',
           {
             sessionKey
           },
           {
-            timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.history
+            timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.subscribe
           }
         )
-
-        const mappedMessages = mapGatewayHistoryMessages(historyPayload)
-        const mappedTraces = mapGatewayHistoryMessageTraces(historyPayload)
-
-        if (getConversationRuntime().historyRequestId === requestId) {
-          const latestRuntime = getConversationRuntime()
-          if (shouldApplyAuthoritativeHistorySnapshot(latestRuntime, mappedMessages)) {
-            updateConversationRuntime((current) => ({
-              ...current,
-              messages: mappedMessages,
-              messageTraces: mappedTraces,
-              liveAssistantRunStateByRunId: {},
-              streamingHistoryRunIds: [],
-              pendingHistoryFallbackRunIdToExpiresAt: {}
-            }))
-          }
-          setHasResolvedHistorySnapshot(true)
-        }
       } catch (error) {
         if (getConversationRuntime().historyRequestId === requestId) {
-          setHistoryError(error instanceof Error ? error.message : '聊天记录加载失败')
+          setHistoryError(error instanceof Error ? error.message : '会话订阅失败')
           setHasResolvedHistorySnapshot(true)
         }
-        throw error
       } finally {
         if (getConversationRuntime().historyRequestId === requestId) {
           setLoadingHistory(false)
+          setHasResolvedHistorySnapshot(true)
         }
       }
 
@@ -924,8 +1021,6 @@ export function useGatewayConversation({
       setHasResolvedHistorySnapshot,
       setHistoryError,
       setLoadingHistory,
-      setMessageTraces,
-      setMessages,
       updateConversationRuntime
     ]
   )
@@ -938,9 +1033,14 @@ export function useGatewayConversation({
         return cachedWorkspacePath
       }
 
-      const configPayload = await requestGatewayMethod(targetInstanceId, 'config.get', {}, {
-        timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.history
-      })
+      const configPayload = await requestGatewayMethod(
+        targetInstanceId,
+        'config.get',
+        {},
+        {
+          timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.history
+        }
+      )
       const workspacePath = parseWorkspacePathFromConfigPayload(configPayload)
 
       if (!workspacePath) {
@@ -956,6 +1056,171 @@ export function useGatewayConversation({
   )
 
   useEffect(() => {
+    if (!conversationRuntimeKey || !instanceId || !isConversationActive) {
+      localSnapshotHydratedRef.current = true
+      setLocalSnapshotHydratedConversationKey(conversationRuntimeKey)
+      return
+    }
+
+    if (!hasAppApiMethod('loadChatConversationSnapshot')) {
+      localSnapshotHydratedRef.current = true
+      setLocalSnapshotHydratedConversationKey(conversationRuntimeKey)
+      return
+    }
+
+    let cancelled = false
+    const targetConversationRuntimeKey = conversationRuntimeKey
+
+    const loadLocalSnapshot = async (): Promise<void> => {
+      try {
+        const response = await loadChatConversationSnapshot({
+          instanceId,
+          sessionKey
+        })
+
+        if (
+          cancelled ||
+          !response.success ||
+          !response.snapshot ||
+          localSnapshotHydratedConversationKeyRef.current !== targetConversationRuntimeKey
+        ) {
+          return
+        }
+
+        const snapshotMessages = response.snapshot.messages.flatMap((message) =>
+          message.role === 'assistant' || message.role === 'user' ? [message] : []
+        )
+        const snapshotMessageTraces = mapPersistedRunTraces(
+          response.snapshot.runTraces as Array<ConversationRunTrace & { runId: string }>
+        )
+
+        updateConversationRuntime((current) => {
+          const canHydrateOverHistoryOnlyRuntime =
+            current.messages.length > 0 &&
+            !hasAssistantRunIds(current.messages) &&
+            Object.keys(current.messageTraces).length === 0 &&
+            (snapshotMessages.length > 0 || Object.keys(snapshotMessageTraces).length > 0)
+
+          if (
+            current.submitting ||
+            current.aborting ||
+            (!canHydrateOverHistoryOnlyRuntime &&
+              (current.messages.length > 0 || Object.keys(current.messageTraces).length > 0))
+          ) {
+            return current
+          }
+
+          return {
+            ...current,
+            messages: snapshotMessages,
+            messageTraces: snapshotMessageTraces
+          }
+        })
+      } finally {
+        if (
+          !cancelled &&
+          localSnapshotHydratedConversationKeyRef.current === targetConversationRuntimeKey
+        ) {
+          localSnapshotHydratedRef.current = true
+          setLocalSnapshotHydratedConversationKey(targetConversationRuntimeKey)
+        }
+      }
+    }
+
+    void loadLocalSnapshot()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    conversationRuntimeKey,
+    instanceId,
+    isConversationActive,
+    sessionKey,
+    updateConversationRuntime
+  ])
+
+  useEffect(() => {
+    if (
+      !instanceId ||
+      !isConversationActive ||
+      !localSnapshotHydratedRef.current ||
+      localSnapshotHydratedConversationKey !== conversationRuntimeKey
+    ) {
+      return
+    }
+
+    if (!hasAppApiMethod('saveChatConversationSnapshot')) {
+      return
+    }
+
+    if (
+      messages.length === 0 &&
+      Object.keys(messageTraces).length === 0 &&
+      !hasResolvedHistorySnapshot
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const currentRuntime = getConversationRuntime()
+      const snapshot = toPersistedConversationSnapshot(
+        currentRuntime.messages,
+        currentRuntime.messageTraces
+      )
+      void saveChatConversationSnapshot({
+        instanceId,
+        sessionKey,
+        snapshot
+      }).catch(() => undefined)
+    }, 240)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    getConversationRuntime,
+    hasResolvedHistorySnapshot,
+    instanceId,
+    isConversationActive,
+    conversationRuntimeKey,
+    localSnapshotHydratedConversationKey,
+    messageTraces,
+    messages,
+    sessionKey
+  ])
+
+  useEffect(() => {
+    if (!isConversationActive || submitting || aborting || hasStreamingAssistantMessage) {
+      return
+    }
+
+    updateConversationRuntime((current) => {
+      if (
+        !current.activeRunId &&
+        Object.keys(current.liveAssistantRunStateByRunId).length === 0 &&
+        current.streamingHistoryRunIds.length === 0
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        activeRunId: null,
+        liveAssistantRunStateByRunId: {},
+        streamingHistoryRunIds: [],
+        aborting: false
+      }
+    })
+  }, [
+    aborting,
+    hasStreamingAssistantMessage,
+    isConversationActive,
+    submitting,
+    updateConversationRuntime
+  ])
+
+  useEffect(() => {
     if (!instanceId) {
       setLoadingHistory(false)
       return
@@ -963,6 +1228,10 @@ export function useGatewayConversation({
 
     if (!isConversationActive) {
       setLoadingHistory(false)
+      return
+    }
+
+    if (conversationRuntimeKey && localSnapshotHydratedConversationKey !== conversationRuntimeKey) {
       return
     }
 
@@ -975,7 +1244,14 @@ export function useGatewayConversation({
     }
 
     void initializeConversation()
-  }, [instanceId, isConversationActive, reloadConversation])
+  }, [
+    conversationRuntimeKey,
+    instanceId,
+    isConversationActive,
+    localSnapshotHydratedConversationKey,
+    reloadConversation,
+    setLoadingHistory
+  ])
 
   useEffect(() => {
     if (!instanceId || !isConversationActive || resettingConversation) {
@@ -1061,11 +1337,14 @@ export function useGatewayConversation({
       const userMessageId = `user-${runId}`
       const assistantMessageId = createAssistantMessageId(runId)
       updateConversationRuntime((current) => {
-        const { [runId]: _removedRunId, ...nextPendingHistoryFallbackRunIdToExpiresAt } =
-          current.pendingHistoryFallbackRunIdToExpiresAt
+        const nextPendingHistoryFallbackRunIdToExpiresAt = {
+          ...current.pendingHistoryFallbackRunIdToExpiresAt
+        }
+        delete nextPendingHistoryFallbackRunIdToExpiresAt[runId]
 
         return {
           ...current,
+          activeRunId: runId,
           liveAssistantRunStateByRunId: {
             ...current.liveAssistantRunStateByRunId,
             [runId]: createLiveAssistantRunState(runId)
@@ -1102,12 +1381,14 @@ export function useGatewayConversation({
         if (options) {
           const modelOverride = normalizeModelOverride(options.model)
           if (modelOverride) {
-            const sessionModelOverrideKey = buildGatewayConversationRuntimeKey(instanceId, sessionKey)
+            const sessionModelOverrideKey = buildGatewayConversationRuntimeKey(
+              instanceId,
+              sessionKey
+            )
             const storeState = useGatewayConversationStore.getState()
             const previousModelOverride =
               storeState.sessionModelOverrideByConversationKey[sessionModelOverrideKey]
-            const shouldPatchModelOverride =
-              previousModelOverride !== modelOverride
+            const shouldPatchModelOverride = previousModelOverride !== modelOverride
 
             if (shouldPatchModelOverride) {
               await requestGatewayMethod(
@@ -1188,13 +1469,18 @@ export function useGatewayConversation({
         })
 
         updateConversationRuntime((current) => {
-          const { [runId]: _removedLiveRunId, ...nextLiveAssistantRunStateByRunId } =
-            current.liveAssistantRunStateByRunId
-          const { [runId]: _removedPendingRunId, ...nextPendingHistoryFallbackRunIdToExpiresAt } =
-            current.pendingHistoryFallbackRunIdToExpiresAt
+          const nextLiveAssistantRunStateByRunId = {
+            ...current.liveAssistantRunStateByRunId
+          }
+          delete nextLiveAssistantRunStateByRunId[runId]
+          const nextPendingHistoryFallbackRunIdToExpiresAt = {
+            ...current.pendingHistoryFallbackRunIdToExpiresAt
+          }
+          delete nextPendingHistoryFallbackRunIdToExpiresAt[runId]
 
           return {
             ...current,
+            activeRunId: current.activeRunId === runId ? null : current.activeRunId,
             liveAssistantRunStateByRunId: nextLiveAssistantRunStateByRunId,
             pendingHistoryFallbackRunIdToExpiresAt: nextPendingHistoryFallbackRunIdToExpiresAt
           }
@@ -1210,10 +1496,88 @@ export function useGatewayConversation({
       resettingConversation,
       resolveWorkspacePathForImageUpload,
       sessionKey,
+      setHistoryError,
+      setMessages,
       setSubmitting,
       updateConversationRuntime
     ]
   )
+
+  const resolveAbortRunId = useCallback(
+    (runtime: GatewayConversationRuntimeState): string | null => {
+      const normalizedActiveRunId = runtime.activeRunId?.trim()
+      if (normalizedActiveRunId) {
+        return normalizedActiveRunId
+      }
+
+      const liveRunId = Object.keys(runtime.liveAssistantRunStateByRunId).at(-1)
+      if (liveRunId) {
+        return liveRunId
+      }
+
+      for (let index = runtime.messages.length - 1; index >= 0; index -= 1) {
+        const message = runtime.messages[index]
+        if (message.role !== 'assistant' || message.status !== 'streaming') {
+          continue
+        }
+
+        const runId = message.runId?.trim()
+        if (runId) {
+          return runId
+        }
+      }
+
+      return null
+    },
+    []
+  )
+
+  const abortConversation = useCallback(async (): Promise<void> => {
+    if (!instanceId || !isConversationActive || resettingConversation || aborting) {
+      return
+    }
+
+    if (!hasAppApiMethod('requestGateway')) {
+      const errorMessage = getAppApiUnavailableMessage('requestGateway')
+      setHistoryError(errorMessage)
+      return
+    }
+
+    const runtime = getConversationRuntime()
+    const targetRunId = resolveAbortRunId(runtime)
+
+    setAborting(true)
+    try {
+      await requestGatewayMethod(
+        instanceId,
+        'chat.abort',
+        {
+          sessionKey,
+          ...(targetRunId ? { runId: targetRunId } : {})
+        },
+        {
+          timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS.chatAbort
+        }
+      )
+
+      await pullGatewayEvents(instanceId)
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : '停止当前对话失败')
+    } finally {
+      setAborting(false)
+    }
+  }, [
+    aborting,
+    getConversationRuntime,
+    instanceId,
+    isConversationActive,
+    pullGatewayEvents,
+    resettingConversation,
+    resolveAbortRunId,
+    sessionKey,
+    setAborting,
+    setHistoryError
+  ])
 
   const resetConversation = useCallback(async (): Promise<void> => {
     if (!instanceId || !isConversationActive || resettingConversation) {
@@ -1259,7 +1623,9 @@ export function useGatewayConversation({
     isConversationActive,
     reloadConversation,
     resettingConversation,
-    sessionKey
+    sessionKey,
+    setHistoryError,
+    setResettingConversation
   ])
 
   return {
@@ -1269,8 +1635,11 @@ export function useGatewayConversation({
     showHistoryLoadingState,
     historyError,
     submitting,
+    aborting,
+    isConversationRunning,
     resettingConversation,
     canResetConversation,
+    abortConversation,
     sendMessage,
     resetConversation
   }

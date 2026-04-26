@@ -1,6 +1,7 @@
 import { isSameGatewaySessionKey } from '@/features/chat/lib/gateway-chat'
 
 const TOOL_CALL_TYPES = new Set(['tool_use', 'tooluse', 'toolcall', 'tool_call'])
+const ITEM_TOOL_KINDS = new Set(['command', 'tool', 'tool_call', 'toolcall', 'tool_use', 'tooluse'])
 const GENERIC_SKILL_PARENT_NAMES = new Set([
   'skills',
   '.skills',
@@ -12,6 +13,12 @@ const GENERIC_SKILL_PARENT_NAMES = new Set([
 export type ConversationRunTrace = {
   skills: string[]
   tools: string[]
+  toolLogs: Array<{
+    id: string
+    toolCallId: string
+    title: string
+    content: string
+  }>
   activeToolCallIds: string[]
   activeToolCalls: Array<{
     toolCallId: string
@@ -23,6 +30,9 @@ export type ConversationRunTrace = {
 
 type GatewayHistoryMessageLike = {
   runId?: unknown
+  run_id?: unknown
+  toolCallId?: unknown
+  tool_call_id?: unknown
   toolName?: unknown
   tool_name?: unknown
   input?: unknown
@@ -33,7 +43,9 @@ type GatewayHistoryMessageLike = {
 
 type GatewayAgentPayloadLike = {
   runId?: unknown
+  run_id?: unknown
   sessionKey?: unknown
+  session_key?: unknown
   stream?: unknown
   data?: unknown
 }
@@ -43,10 +55,11 @@ export type ParsedGatewayAgentEvent =
       type: 'tool'
       runId: string
       sessionKey: string
-      phase: 'start' | 'update' | 'result'
+      phase: 'start' | 'update' | 'result' | 'error'
       toolName: string
       toolCallId: string
       args?: unknown
+      detail?: unknown
     }
   | {
       type: 'assistant'
@@ -64,6 +77,7 @@ export type ParsedGatewayAgentEvent =
     }
 
 type ToolInvocation = {
+  toolCallId?: string
   toolName: string
   args?: unknown
 }
@@ -79,6 +93,60 @@ function normalizeNonEmptyString(value: unknown): string | null {
 
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function readFirstNonEmptyString(source: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = source[key]
+    const normalized = normalizeNonEmptyString(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return null
+}
+
+function normalizeEventPhase(
+  phase: string | null
+): 'start' | 'update' | 'result' | 'error' | 'end' | null {
+  if (!phase) {
+    return null
+  }
+
+  const normalized = phase.trim().toLowerCase()
+  if (!normalized) {
+    return null
+  }
+
+  if (normalized === 'start') {
+    return 'start'
+  }
+
+  if (normalized === 'update' || normalized === 'delta') {
+    return 'update'
+  }
+
+  if (normalized === 'result') {
+    return 'result'
+  }
+
+  if (normalized === 'error' || normalized === 'failed' || normalized === 'fail') {
+    return 'error'
+  }
+
+  if (
+    normalized === 'end' ||
+    normalized === 'complete' ||
+    normalized === 'completed' ||
+    normalized === 'finish' ||
+    normalized === 'finished' ||
+    normalized === 'final'
+  ) {
+    return 'result'
+  }
+
+  return null
 }
 
 function appendUniqueLabel(labels: string[], nextLabel: string): string[] {
@@ -124,16 +192,55 @@ function removeActiveToolCall(
   return activeToolCalls.filter((toolCall) => toolCall.toolCallId !== targetToolCallId)
 }
 
+function stringifyToolLogContent(value: unknown): string {
+  if (value === null || value === undefined) {
+    return ''
+  }
+
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function appendToolLog(
+  toolLogs: ConversationRunTrace['toolLogs'],
+  nextToolLog: ConversationRunTrace['toolLogs'][number]
+): ConversationRunTrace['toolLogs'] {
+  if (toolLogs.some((log) => log.id === nextToolLog.id)) {
+    return toolLogs
+  }
+
+  return [...toolLogs, nextToolLog]
+}
+
 function normalizeToolName(value: unknown): string | null {
   return normalizeNonEmptyString(value)
 }
 
 function collectToolInvocations(message: GatewayHistoryMessageLike): ToolInvocation[] {
   const invocations: ToolInvocation[] = []
+  const messageRecord = message as Record<string, unknown>
 
   const topLevelToolName = normalizeToolName(message.toolName ?? message.tool_name)
   if (topLevelToolName) {
     invocations.push({
+      toolCallId:
+        readFirstNonEmptyString(messageRecord, [
+          'toolCallId',
+          'tool_call_id',
+          'toolcallid',
+          'id'
+        ]) ?? '',
       toolName: topLevelToolName,
       args: message.args ?? message.input ?? message.arguments
     })
@@ -159,8 +266,10 @@ function collectToolInvocations(message: GatewayHistoryMessageLike): ToolInvocat
     }
 
     invocations.push({
+      toolCallId:
+        readFirstNonEmptyString(item, ['toolCallId', 'tool_call_id', 'toolcallid', 'id']) ?? '',
       toolName,
-      args: item.input ?? item.arguments ?? item.args
+      args: item.input ?? item.arguments ?? item.args ?? item.params
     })
   }
 
@@ -231,6 +340,7 @@ function createEmptyTrace(): ConversationRunTrace {
   return {
     skills: [],
     tools: [],
+    toolLogs: [],
     activeToolCallIds: [],
     activeToolCalls: [],
     isGenerating: false
@@ -248,6 +358,7 @@ function withTrace(
   if (
     nextTrace.skills.length === 0 &&
     nextTrace.tools.length === 0 &&
+    nextTrace.toolLogs.length === 0 &&
     nextTrace.activeToolCallIds.length === 0 &&
     nextTrace.activeToolCalls.length === 0 &&
     !nextTrace.isGenerating
@@ -280,9 +391,15 @@ export function parseGatewayAgentEvent(
   }
 
   const payload = event.payload as GatewayAgentPayloadLike
-  const runId = normalizeNonEmptyString(payload.runId)
-  const payloadSessionKey = normalizeNonEmptyString(payload.sessionKey)
-  const stream = normalizeNonEmptyString(payload.stream)
+  const payloadRecord = payload as Record<string, unknown>
+  const runId = readFirstNonEmptyString(payloadRecord, ['runId', 'run_id', 'runID', 'runid'])
+  const payloadSessionKey = readFirstNonEmptyString(payloadRecord, [
+    'sessionKey',
+    'session_key',
+    'sessionID',
+    'session_id'
+  ])
+  const stream = readFirstNonEmptyString(payloadRecord, ['stream'])?.toLowerCase() ?? null
 
   if (
     !runId ||
@@ -298,33 +415,91 @@ export function parseGatewayAgentEvent(
     return null
   }
 
-  if (stream === 'tool') {
-    const phase = normalizeNonEmptyString(data.phase)
-    const toolName = normalizeToolName(data.name)
-    const toolCallId = normalizeNonEmptyString(data.toolCallId)
+  if (stream === 'tool' || stream === 'item') {
+    const itemKind = readFirstNonEmptyString(data, ['kind', 'type'])?.toLowerCase() ?? null
+    const phase = normalizeEventPhase(readFirstNonEmptyString(data, ['phase', 'status', 'state']))
+    const toolName = normalizeToolName(data.name ?? data.toolName ?? data.tool_name)
+    const toolCallId = readFirstNonEmptyString(data, [
+      'toolCallId',
+      'tool_call_id',
+      'toolcallid',
+      'itemId',
+      'item_id',
+      'id'
+    ])
+    const commandMeta = normalizeNonEmptyString(data.meta)
+    const args =
+      data.args ??
+      data.input ??
+      data.arguments ??
+      data.params ??
+      (commandMeta ? { command: commandMeta } : undefined)
+    const detail = data.result ?? data.output ?? data.content ?? data.value ?? data.message ?? args
 
-    if (!phase || !toolName || !toolCallId) {
-      return null
+    const isToolItem =
+      stream === 'tool' ||
+      Boolean(itemKind && ITEM_TOOL_KINDS.has(itemKind)) ||
+      (Boolean(toolName) &&
+        Boolean(toolCallId) &&
+        (data.args !== undefined ||
+          data.input !== undefined ||
+          data.arguments !== undefined ||
+          data.params !== undefined ||
+          data.result !== undefined ||
+          data.output !== undefined ||
+          commandMeta !== null))
+
+    if (isToolItem) {
+      if (!phase || !toolName || !toolCallId) {
+        return null
+      }
+
+      if (phase !== 'start' && phase !== 'update' && phase !== 'result' && phase !== 'error') {
+        return null
+      }
+
+      return {
+        type: 'tool',
+        runId,
+        sessionKey: payloadSessionKey,
+        phase,
+        toolName,
+        toolCallId,
+        args,
+        detail
+      }
     }
 
-    if (phase !== 'start' && phase !== 'update' && phase !== 'result') {
-      return null
+    if (stream === 'item') {
+      const text = readFirstNonEmptyString(data, ['text', 'content', 'message', 'value']) ?? ''
+      const delta = readFirstNonEmptyString(data, ['delta', 'chunk', 'append']) ?? ''
+      if (text || delta) {
+        return {
+          type: 'assistant',
+          runId,
+          sessionKey: payloadSessionKey,
+          text,
+          delta,
+          receivedAt: event.receivedAt
+        }
+      }
+
+      if (phase === 'error' || phase === 'result') {
+        return {
+          type: 'lifecycle',
+          runId,
+          sessionKey: payloadSessionKey,
+          phase: phase === 'error' ? 'error' : 'end'
+        }
+      }
     }
 
-    return {
-      type: 'tool',
-      runId,
-      sessionKey: payloadSessionKey,
-      phase,
-      toolName,
-      toolCallId,
-      args: data.args
-    }
+    return null
   }
 
   if (stream === 'assistant') {
-    const text = typeof data.text === 'string' ? data.text : ''
-    const delta = typeof data.delta === 'string' ? data.delta : ''
+    const text = readFirstNonEmptyString(data, ['text', 'content', 'message', 'value']) ?? ''
+    const delta = readFirstNonEmptyString(data, ['delta', 'chunk', 'append']) ?? ''
 
     if (!text && !delta) {
       return null
@@ -341,8 +516,8 @@ export function parseGatewayAgentEvent(
   }
 
   if (stream === 'lifecycle') {
-    const phase = normalizeNonEmptyString(data.phase)
-    if (phase !== 'end' && phase !== 'error') {
+    const phase = normalizeEventPhase(readFirstNonEmptyString(data, ['phase', 'status', 'state']))
+    if (phase !== 'result' && phase !== 'error') {
       return null
     }
 
@@ -350,7 +525,7 @@ export function parseGatewayAgentEvent(
       type: 'lifecycle',
       runId,
       sessionKey: payloadSessionKey,
-      phase
+      phase: phase === 'error' ? 'error' : 'end'
     }
   }
 
@@ -371,28 +546,40 @@ export function mapGatewayHistoryMessageTraces(
       continue
     }
 
+    const messageRecord = message as Record<string, unknown>
     const historyMessage = message as GatewayHistoryMessageLike
-    const runId = normalizeNonEmptyString(historyMessage.runId)
+    const runId = readFirstNonEmptyString(messageRecord, ['runId', 'run_id', 'runID', 'runid'])
     if (!runId) {
       continue
     }
 
-    for (const invocation of collectToolInvocations(historyMessage)) {
+    collectToolInvocations(historyMessage).forEach((invocation, invocationIndex) => {
       traces = withTrace(traces, runId, (trace) => {
         const nextSkills = (() => {
           const inferredSkill = inferSkillNameFromToolInvocation(invocation)
           return inferredSkill ? appendUniqueLabel(trace.skills, inferredSkill) : trace.skills
         })()
+        const shouldTrackCommandLog = invocation.toolName.trim().toLowerCase() === 'exec'
+        const toolLogContent = stringifyToolLogContent(invocation.args)
+        const toolLogId = `${runId}:${invocation.toolCallId || `history-${invocationIndex}`}:${invocation.toolName}:${toolLogContent}`
 
         return {
           ...trace,
           skills: nextSkills,
           tools: appendUniqueLabel(trace.tools, invocation.toolName),
+          toolLogs: shouldTrackCommandLog
+            ? appendToolLog(trace.toolLogs, {
+                id: toolLogId,
+                toolCallId: invocation.toolCallId || `history-${invocationIndex}`,
+                title: invocation.toolName,
+                content: toolLogContent
+              })
+            : trace.toolLogs,
           activeToolCalls: [],
           isGenerating: false
         }
       })
-    }
+    })
   }
 
   return traces
@@ -440,6 +627,16 @@ export function reduceRunTracesFromGatewayEvents(
         })
         return inferredSkill ? appendUniqueLabel(trace.skills, inferredSkill) : trace.skills
       })()
+      const shouldTrackCommandLog =
+        parsed.phase === 'start' && parsed.toolName.trim().toLowerCase() === 'exec'
+      const nextToolLogs = shouldTrackCommandLog
+        ? appendToolLog(trace.toolLogs, {
+            id: `${parsed.toolCallId}:start:${parsed.toolName}:${stringifyToolLogContent(parsed.args)}`,
+            toolCallId: parsed.toolCallId,
+            title: parsed.toolName,
+            content: stringifyToolLogContent(parsed.args)
+          })
+        : trace.toolLogs
 
       if (parsed.phase === 'start') {
         const inferredSkill = inferSkillNameFromToolInvocation({
@@ -450,6 +647,7 @@ export function reduceRunTracesFromGatewayEvents(
         return {
           skills: nextSkills,
           tools: appendUniqueLabel(trace.tools, parsed.toolName),
+          toolLogs: nextToolLogs,
           activeToolCallIds: appendUniqueToolCallId(trace.activeToolCallIds, parsed.toolCallId),
           activeToolCalls: appendActiveToolCall(trace.activeToolCalls, {
             toolCallId: parsed.toolCallId,
@@ -460,10 +658,11 @@ export function reduceRunTracesFromGatewayEvents(
         }
       }
 
-      if (parsed.phase === 'result') {
+      if (parsed.phase === 'result' || parsed.phase === 'error') {
         return {
           skills: nextSkills,
           tools: appendUniqueLabel(trace.tools, parsed.toolName),
+          toolLogs: nextToolLogs,
           activeToolCallIds: removeToolCallId(trace.activeToolCallIds, parsed.toolCallId),
           activeToolCalls: removeActiveToolCall(trace.activeToolCalls, parsed.toolCallId),
           isGenerating: true
@@ -474,6 +673,7 @@ export function reduceRunTracesFromGatewayEvents(
         ...trace,
         skills: nextSkills,
         tools: appendUniqueLabel(trace.tools, parsed.toolName),
+        toolLogs: nextToolLogs,
         activeToolCalls: trace.activeToolCalls,
         isGenerating: true
       }

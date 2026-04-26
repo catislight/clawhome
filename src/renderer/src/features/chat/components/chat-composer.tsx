@@ -5,11 +5,14 @@ import type { ChatSubmitPayload } from '@/features/chat/lib/chat-send-types'
 
 type ChatComposerProps = {
   onSubmit: (payload: ChatSubmitPayload) => Promise<void> | void
+  onStop?: () => Promise<void> | void
   ariaLabel?: string
   placeholder?: string
   submitLabel?: string
   disabled?: boolean
   submitting?: boolean
+  stopVisible?: boolean
+  stopping?: boolean
   showShortcutHint?: boolean
   shortcutHint?: string
   sendShortcuts?: string[]
@@ -20,11 +23,14 @@ type ChatComposerProps = {
 
 function ChatComposer({
   onSubmit,
+  onStop,
   ariaLabel,
   placeholder,
   submitLabel,
   disabled,
   submitting,
+  stopVisible,
+  stopping,
   showShortcutHint,
   shortcutHint,
   sendShortcuts,
@@ -35,11 +41,14 @@ function ChatComposer({
   return (
     <ConversationInput
       onSubmit={onSubmit}
+      onStop={onStop}
       ariaLabel={ariaLabel}
       placeholder={placeholder}
       submitLabel={submitLabel}
       disabled={disabled}
       submitting={submitting}
+      stopVisible={stopVisible}
+      stopping={stopping}
       showShortcutHint={showShortcutHint}
       shortcutHint={shortcutHint}
       sendShortcuts={sendShortcuts}

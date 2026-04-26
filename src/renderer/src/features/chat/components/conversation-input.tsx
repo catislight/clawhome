@@ -8,11 +8,14 @@ import { useAppI18n } from '@/shared/i18n/app-i18n'
 
 type ConversationInputProps = {
   onSubmit: (payload: ChatSubmitPayload) => Promise<void> | void
+  onStop?: () => Promise<void> | void
   ariaLabel?: string
   placeholder?: string
   submitLabel?: string
   disabled?: boolean
   submitting?: boolean
+  stopVisible?: boolean
+  stopping?: boolean
   showShortcutHint?: boolean
   shortcutHint?: string
   sendShortcuts?: string[]
@@ -98,11 +101,14 @@ function ConversationInput(props: ConversationInputProps): React.JSX.Element {
   const { t } = useAppI18n()
   const {
     onSubmit: onSubmitValue,
+    onStop,
     ariaLabel,
     placeholder,
     submitLabel,
     disabled,
     submitting,
+    stopVisible,
+    stopping,
     showShortcutHint,
     shortcutHint,
     sendShortcuts,
@@ -154,6 +160,9 @@ function ConversationInput(props: ConversationInputProps): React.JSX.Element {
       submitLabel={submitLabel}
       disabled={disabled}
       submitting={submitting}
+      stopVisible={stopVisible}
+      stopping={stopping}
+      onStop={onStop}
       showShortcutHint={showShortcutHint}
       shortcutHint={shortcutHint}
       showSubmitText={showSubmitText}

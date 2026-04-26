@@ -131,6 +131,52 @@ System: - telegram (configured)
     expect(messages[0]?.content).toBe('ok')
   })
 
+  it('keeps only /new when runtime startup context is appended to the user command', () => {
+    const messages = mapGatewayHistoryMessages({
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: [
+            '/new',
+            '',
+            '[Startup context loaded by runtime]',
+            '[Untrusted daily memory: no summary available yet]',
+            'BEGIN_QUOTED_NOTES',
+            'A new session was started via /new or /reset.',
+            'Current time: Thursday, March 26th, 2026 - 10:57 AM (Asia/Shanghai)',
+            'END_QUOTED_NOTES'
+          ].join('\n')
+        }
+      ]
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toBe('/new')
+  })
+
+  it('keeps only /reset when runtime startup context is appended to the user command', () => {
+    const messages = mapGatewayHistoryMessages({
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: [
+            '/reset',
+            '',
+            '[Startup context loaded by runtime]',
+            'BEGIN_QUOTED_NOTES',
+            'A new session was started via /new or /reset.',
+            'END_QUOTED_NOTES'
+          ].join('\n')
+        }
+      ]
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.content).toBe('/reset')
+  })
+
   it('strips envelope-style bracket prefixes with timestamp-like headers', () => {
     const messages = mapGatewayHistoryMessages({
       messages: [
@@ -306,6 +352,22 @@ System: - telegram (configured)
     expect(messages).toHaveLength(1)
     expect(messages[0]?.content).toBe('请给我总结一下今天的变化')
   })
+
+  it('maps snake_case run_id from history messages for trace linkage', () => {
+    const messages = mapGatewayHistoryMessages({
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          run_id: 'snake-run-1',
+          content: '处理完成'
+        }
+      ]
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.runId).toBe('snake-run-1')
+  })
 })
 
 describe('parseGatewayChatEvent', () => {
@@ -323,5 +385,23 @@ describe('parseGatewayChatEvent', () => {
 
     expect(parsed).not.toBeNull()
     expect(parsed?.content).toBe('展示内容')
+  })
+
+  it('supports snake_case chat event payload fields', () => {
+    const parsed = parseGatewayChatEvent({
+      event: 'chat',
+      payload: {
+        run_id: 'run-snake-1',
+        session_key: 'agent:main:main',
+        state: 'final',
+        message: '兼容字段测试'
+      },
+      receivedAt: '2026-03-31T03:30:00.000Z'
+    })
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.runId).toBe('run-snake-1')
+    expect(parsed?.sessionKey).toBe('agent:main:main')
+    expect(parsed?.content).toBe('兼容字段测试')
   })
 })

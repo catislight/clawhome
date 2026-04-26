@@ -66,6 +66,9 @@ interface SlashInputProps {
   sendShortcuts?: string[]
   disabled?: boolean
   submitting?: boolean
+  stopVisible?: boolean
+  stopping?: boolean
+  onStop?: () => Promise<void> | void
   placeholder?: string
   ariaLabel?: string
   submitLabel?: string
@@ -318,6 +321,9 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     sendShortcuts,
     disabled,
     submitting,
+    stopVisible,
+    stopping,
+    onStop,
     placeholder,
     ariaLabel,
     submitLabel,
@@ -334,6 +340,8 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
   const onSendRef = useRef(onSend)
   const disabledRef = useRef(Boolean(disabled))
   const submittingRef = useRef(Boolean(submitting))
+  const stopVisibleRef = useRef(Boolean(stopVisible))
+  const stoppingRef = useRef(Boolean(stopping))
   const [tagModal, setTagModal] = useState<{ label: string; content: string } | null>(null)
   const [imagePreviewModal, setImagePreviewModal] = useState<{
     src: string
@@ -452,6 +460,14 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     submittingRef.current = Boolean(submitting)
   }, [submitting])
 
+  useEffect(() => {
+    stopVisibleRef.current = Boolean(stopVisible)
+  }, [stopVisible])
+
+  useEffect(() => {
+    stoppingRef.current = Boolean(stopping)
+  }, [stopping])
+
   const sendExtension = useMemo(
     () =>
       SendContent.configure({
@@ -462,7 +478,9 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
             !hasSendableContent(resolved) ||
             hasPendingUploadPlaceholder(resolved) ||
             disabledRef.current ||
-            submittingRef.current
+            submittingRef.current ||
+            stopVisibleRef.current ||
+            stoppingRef.current
           ) {
             return
           }
@@ -558,10 +576,11 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     [editorStore]
   )
 
+  const showStopButton = Boolean(stopVisible)
   const canSend =
     hasSendableContent(snapshot) &&
     !hasPendingUploadPlaceholder(snapshot) &&
-    !(disabled || submitting)
+    !(disabled || submitting || showStopButton || stopping)
   const normalizedShortcutHint = typeof shortcutHint === 'string' ? shortcutHint.trim() : ''
   const shouldRenderShortcutHint = showShortcutHint === true && normalizedShortcutHint.length > 0
 
@@ -610,12 +629,32 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
 
         <SendContentButton
           editor={editor}
-          label={showSubmitText === false ? '' : (submitLabel ?? t('chat.slash.send'))}
+          label={
+            showSubmitText === false
+              ? ''
+              : showStopButton
+                ? t('chat.slash.stop')
+                : (submitLabel ?? t('chat.slash.send'))
+          }
           showLabel={showSubmitText !== false}
           submitting={submitting}
-          disabled={!canSend}
-          aria-label={submitting ? t('chat.slash.sending') : (submitLabel ?? t('chat.slash.send'))}
-          className="h-7 rounded-[0.75rem] border border-[#0A84FF]/10 bg-[#0A84FF] px-2.5 text-[12px] font-semibold text-white shadow-none transition-colors hover:bg-[#0077ED] disabled:border-[#C8D0DB] disabled:bg-[#D8DEE8] disabled:text-[#788394] disabled:opacity-100 disabled:hover:bg-[#D8DEE8]"
+          stopMode={showStopButton}
+          stopping={stopping}
+          onStop={onStop}
+          disabled={showStopButton ? Boolean(disabled || stopping) : !canSend}
+          aria-label={
+            showStopButton
+              ? (stopping ? t('chat.slash.stopping') : t('chat.slash.stop'))
+              : submitting
+                ? t('chat.slash.sending')
+                : (submitLabel ?? t('chat.slash.send'))
+          }
+          className={cn(
+            'h-7 rounded-[0.75rem] border px-2.5 text-[12px] font-semibold text-white shadow-none transition-colors disabled:opacity-100',
+            showStopButton
+              ? 'border-rose-500/20 bg-rose-500 hover:bg-rose-600 disabled:border-[#E7C5CB] disabled:bg-[#E7C5CB] disabled:text-[#8A6068] disabled:hover:bg-[#E7C5CB]'
+              : 'border-[#0A84FF]/10 bg-[#0A84FF] hover:bg-[#0077ED] disabled:border-[#C8D0DB] disabled:bg-[#D8DEE8] disabled:text-[#788394] disabled:hover:bg-[#D8DEE8]'
+          )}
         />
       </div>
 

@@ -44,6 +44,12 @@ import {
   type WorkspaceImageUploadResult,
   type WorkspaceImageReadPayload,
   type WorkspaceImageReadResult,
+  type ChatPersistenceSaveConversationSnapshotPayload,
+  type ChatPersistenceSaveConversationSnapshotResult,
+  type ChatPersistenceLoadConversationSnapshotPayload,
+  type ChatPersistenceLoadConversationSnapshotResult,
+  type ChatPersistenceDeleteConversationSnapshotPayload,
+  type ChatPersistenceDeleteConversationSnapshotResult,
   type SshCommandPayload,
   type SshCommandResult,
   type SshConnectionTestPayload,
@@ -66,6 +72,8 @@ import { executeSshCommand, testSshConnection } from './node-ssh-util'
 import { OpenClawGatewaySessionManager } from './openclaw-gateway-session'
 import { restartOpenClawGateway } from './openclaw-gateway-restart'
 import { LocalTerminalSessionManager } from './local-terminal-session-manager'
+import { ChatPersistenceStore } from './chat-persistence-store'
+import { closeChatPersistenceDatabase } from './chat-persistence-db'
 
 export type RegisteredIpcHandlers = {
   dispose: () => Promise<void>
@@ -582,9 +590,79 @@ function registerWorkspaceImageHandlers(): void {
   )
 }
 
+function registerChatPersistenceHandlers(chatPersistenceStore: ChatPersistenceStore): void {
+  ipcMain.handle(
+    IPC_CHANNELS.chatPersistenceSaveConversationSnapshot,
+    async (
+      _,
+      payload: ChatPersistenceSaveConversationSnapshotPayload
+    ): Promise<ChatPersistenceSaveConversationSnapshotResult> => {
+      try {
+        chatPersistenceStore.saveConversationSnapshot(payload)
+        return {
+          success: true,
+          message: '会话快照保存成功'
+        }
+      } catch (error) {
+        return {
+          success: false,
+          message: toErrorMessage(error, '会话快照保存失败')
+        }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.chatPersistenceLoadConversationSnapshot,
+    async (
+      _,
+      payload: ChatPersistenceLoadConversationSnapshotPayload
+    ): Promise<ChatPersistenceLoadConversationSnapshotResult> => {
+      try {
+        const snapshot = chatPersistenceStore.loadConversationSnapshot(payload)
+        return {
+          success: true,
+          message: snapshot ? '会话快照读取成功' : '未找到会话快照',
+          snapshot
+        }
+      } catch (error) {
+        return {
+          success: false,
+          message: toErrorMessage(error, '会话快照读取失败'),
+          snapshot: null
+        }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.chatPersistenceDeleteConversationSnapshot,
+    async (
+      _,
+      payload: ChatPersistenceDeleteConversationSnapshotPayload
+    ): Promise<ChatPersistenceDeleteConversationSnapshotResult> => {
+      try {
+        const deleted = chatPersistenceStore.deleteConversationSnapshot(payload)
+        return {
+          success: true,
+          message: deleted ? '会话快照删除成功' : '会话快照不存在',
+          deleted
+        }
+      } catch (error) {
+        return {
+          success: false,
+          message: toErrorMessage(error, '会话快照删除失败'),
+          deleted: false
+        }
+      }
+    }
+  )
+}
+
 export function registerIpcHandlers(): RegisteredIpcHandlers {
   const gatewaySessionManager = new OpenClawGatewaySessionManager()
   const terminalSessionManager = new LocalTerminalSessionManager()
+  const chatPersistenceStore = new ChatPersistenceStore()
 
   ipcMain.on(IPC_CHANNELS.ping, () => console.log('pong'))
 
@@ -595,10 +673,12 @@ export function registerIpcHandlers(): RegisteredIpcHandlers {
   registerLocalSkillFileHandlers()
   registerLocalMemoryFileHandlers()
   registerWorkspaceImageHandlers()
+  registerChatPersistenceHandlers(chatPersistenceStore)
 
   return {
     dispose: async () => {
       await Promise.all([gatewaySessionManager.disposeAll(), terminalSessionManager.disposeAll()])
+      closeChatPersistenceDatabase()
     }
   }
 }

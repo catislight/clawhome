@@ -38,6 +38,14 @@ export type GatewayMethodMap = {
     }
     payload: unknown
   }
+  'chat.abort': {
+    params: {
+      sessionKey: string
+      key?: string
+      runId?: string
+    }
+    payload: unknown
+  }
   // 会话管理：列表、重命名、删除、重置。
   'sessions.list': {
     params: {

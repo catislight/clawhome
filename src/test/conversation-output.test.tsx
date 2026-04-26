@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ConversationOutput from '../renderer/src/features/chat/components/conversation-output'
@@ -211,6 +212,123 @@ describe('ConversationOutput', () => {
     expect(useKnowledgeBaseStore.getState().favorites).toHaveLength(1)
   })
 
+  it('opens tool logs drawer from assistant action bar', () => {
+    render(
+      <ConversationOutput
+        messages={[
+          {
+            id: 'assistant-with-tool-log',
+            runId: 'run-with-tool-log',
+            role: 'assistant',
+            content: '我已经执行了工具调用',
+            timeLabel: '10:40'
+          }
+        ]}
+        messageTraces={{
+          'run-with-tool-log': {
+            skills: [],
+            tools: ['exec'],
+            toolLogs: [
+              {
+                id: 'tool-exec-start',
+                toolCallId: 'tool-exec-1',
+                title: 'exec',
+                content: '{\n  "command": "echo hello",\n  "timeout": 15\n}'
+              },
+              {
+                id: 'tool-exec-update',
+                toolCallId: 'tool-exec-1',
+                title: 'exec · update',
+                content: ''
+              },
+              {
+                id: 'tool-exec-result',
+                toolCallId: 'tool-exec-1',
+                title: 'exec · result',
+                content: ''
+              }
+            ],
+            activeToolCallIds: [],
+            activeToolCalls: [],
+            isGenerating: false
+          }
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '查看命令日志' }))
+
+    const dialog = screen.getByRole('dialog', { name: '命令调用日志' })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('echo hello')).toBeInTheDocument()
+    expect(within(dialog).queryByText('exec · update')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('exec · result')).not.toBeInTheDocument()
+  })
+
+  it('shows empty-content placeholder when command field is missing', () => {
+    render(
+      <ConversationOutput
+        messages={[
+          {
+            id: 'assistant-with-empty-tool-log-content',
+            runId: 'run-empty-tool-log-content',
+            role: 'assistant',
+            content: '工具执行完成',
+            timeLabel: '10:42'
+          }
+        ]}
+        messageTraces={{
+          'run-empty-tool-log-content': {
+            skills: [],
+            tools: ['exec'],
+            toolLogs: [
+              {
+                id: 'exec-start-without-command',
+                toolCallId: 'exec-1',
+                title: 'exec',
+                content: '{\n  "path": "/workspace/SKILL.md"\n}'
+              }
+            ],
+            activeToolCallIds: [],
+            activeToolCalls: [],
+            isGenerating: false
+          }
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '查看命令日志' }))
+
+    const dialog = screen.getByRole('dialog', { name: '命令调用日志' })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).queryByText('exec')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('无命令内容')).toBeInTheDocument()
+  })
+
+  it('keeps tool logs button clickable and opens empty drawer when no logs exist', () => {
+    render(
+      <ConversationOutput
+        messages={[
+          {
+            id: 'assistant-without-tool-log',
+            role: 'assistant',
+            content: '这条回复没有工具调用',
+            timeLabel: '10:41'
+          }
+        ]}
+      />
+    )
+
+    const toolLogsButton = screen.getByRole('button', { name: '查看命令日志' })
+    expect(toolLogsButton).toBeEnabled()
+
+    fireEvent.click(toolLogsButton)
+
+    const dialog = screen.getByRole('dialog', { name: '命令调用日志' })
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('当前回复没有可展示的命令调用日志。')).toBeInTheDocument()
+  })
+
   it('renders empty state without message items', () => {
     render(<ConversationOutput messages={[]} emptyState={<p>暂无消息</p>} />)
 
@@ -243,6 +361,7 @@ describe('ConversationOutput', () => {
           'run-1': {
             skills: ['openai-docs'],
             tools: ['read', 'web_search'],
+            toolLogs: [],
             activeToolCallIds: ['tool-1'],
             activeToolCalls: [
               {
@@ -284,6 +403,7 @@ describe('ConversationOutput', () => {
           'run-pending-result': {
             skills: [],
             tools: ['browser'],
+            toolLogs: [],
             activeToolCallIds: [],
             activeToolCalls: [],
             isGenerating: true

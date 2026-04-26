@@ -42,7 +42,13 @@ const APP_API_UNAVAILABLE_MESSAGES: Record<AppBridgeMethodName, string> = {
   writeLocalMemoryFile: 'writeLocalMemoryFile 不可用，请重启 Electron 开发进程后重试。',
   deleteLocalMemoryFile: 'deleteLocalMemoryFile 不可用，请重启 Electron 开发进程后重试。',
   uploadWorkspaceImage: 'uploadWorkspaceImage 不可用，请重启 Electron 开发进程后重试。',
-  readWorkspaceImage: 'readWorkspaceImage 不可用，请重启 Electron 开发进程后重试。'
+  readWorkspaceImage: 'readWorkspaceImage 不可用，请重启 Electron 开发进程后重试。',
+  saveChatConversationSnapshot:
+    'saveChatConversationSnapshot 不可用，请重启 Electron 开发进程后重试。',
+  loadChatConversationSnapshot:
+    'loadChatConversationSnapshot 不可用，请重启 Electron 开发进程后重试。',
+  deleteChatConversationSnapshot:
+    'deleteChatConversationSnapshot 不可用，请重启 Electron 开发进程后重试。'
 }
 
 function getAppBridge(): Partial<AppBridgeApi> | null {
@@ -244,4 +250,22 @@ export function readWorkspaceImage(
   ...args: Parameters<AppBridgeApi['readWorkspaceImage']>
 ): ReturnType<AppBridgeApi['readWorkspaceImage']> {
   return requireAppApiMethod('readWorkspaceImage')(...args)
+}
+
+export function saveChatConversationSnapshot(
+  ...args: Parameters<AppBridgeApi['saveChatConversationSnapshot']>
+): ReturnType<AppBridgeApi['saveChatConversationSnapshot']> {
+  return requireAppApiMethod('saveChatConversationSnapshot')(...args)
+}
+
+export function loadChatConversationSnapshot(
+  ...args: Parameters<AppBridgeApi['loadChatConversationSnapshot']>
+): ReturnType<AppBridgeApi['loadChatConversationSnapshot']> {
+  return requireAppApiMethod('loadChatConversationSnapshot')(...args)
+}
+
+export function deleteChatConversationSnapshot(
+  ...args: Parameters<AppBridgeApi['deleteChatConversationSnapshot']>
+): ReturnType<AppBridgeApi['deleteChatConversationSnapshot']> {
+  return requireAppApiMethod('deleteChatConversationSnapshot')(...args)
 }

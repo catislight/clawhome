@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useChatModelSelector } from '../renderer/src/features/chat/lib/use-chat-model-selector'
+import { useAppPreferenceStore } from '../renderer/src/features/preferences/store/use-app-preference-store'
 
 const requestGatewayMethodMock = vi.fn()
 const useOpenClawModelChoicesMock = vi.fn()
@@ -40,6 +41,8 @@ function ChatModelSelectorHarness(props: {
 describe('useChatModelSelector', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppPreferenceStore.getState().resetPreferences()
     useOpenClawModelChoicesMock.mockReturnValue({
       loading: false,
       error: null,
@@ -84,6 +87,30 @@ describe('useChatModelSelector', () => {
       })
       await Promise.resolve()
     })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-model')).toHaveTextContent(
+        'custom-right-codes/MiniMax-M2.7-highspeed'
+      )
+    })
+  })
+
+  it('restores persisted model preference for current conversation', async () => {
+    useAppPreferenceStore
+      .getState()
+      .setHomeChatModelPreference('instance-1::agent:main:main', 'custom-right-codes/MiniMax-M2.7-highspeed')
+
+    requestGatewayMethodMock.mockResolvedValue({
+      sessions: [
+        {
+          key: 'agent:main:main',
+          modelProvider: 'openai',
+          model: 'gpt-4o-mini'
+        }
+      ]
+    })
+
+    render(<ChatModelSelectorHarness instanceId="instance-1" sessionKey="agent:main:main" />)
 
     await waitFor(() => {
       expect(screen.getByTestId('selected-model')).toHaveTextContent(
