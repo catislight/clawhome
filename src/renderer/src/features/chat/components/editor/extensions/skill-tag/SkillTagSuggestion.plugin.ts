@@ -1,75 +1,75 @@
 import { Extension, type Editor, type Range } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion, { type SuggestionOptions } from '@tiptap/suggestion'
-import { translateWithAppLanguage } from '@/shared/i18n/app-i18n'
-import SlashMenu, { type SlashMenuRef } from './SlashCommandMenu'
-import { type CommandItem } from './SlashCommand.types'
 
-type SlashCommandOptions = {
-  items: CommandItem[]
+import SlashMenu, {
+  type SlashMenuRef
+} from '@/features/chat/components/editor/extensions/slash-command/SlashCommandMenu'
+import type { CommandItem } from '@/features/chat/components/editor/extensions/slash-command/SlashCommand.types'
+
+type SkillTagSuggestionOptions = {
+  skillNames: string[]
   menuAnchorRect?: (() => DOMRect | null) | null
+  onMenuOpen?: (() => void) | null
   triggerChar: string
 }
 
-function createDefaultItems(): CommandItem[] {
-  const helpDescription = translateWithAppLanguage('chat.slash.default.helpDescription')
-  const statusDescription = translateWithAppLanguage('chat.slash.default.statusDescription')
+const SKILL_TAG_SUGGESTION_PLUGIN_KEY = new PluginKey('skill-tag-suggestion')
 
-  return [
-    {
-      title: '/help',
-      description: helpDescription,
-      keywords: ['help'],
-      command: ({ editor, range }: { editor: Editor; range: Range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertContent([
-            {
-              type: 'slashCommandNode',
-              attrs: {
-                command: '/help',
-                description: helpDescription,
-                args: [],
-                values: {}
-              }
-            },
-            { type: 'text', text: ' ' }
-          ])
-          .run()
-    },
-    {
-      title: '/status',
-      description: statusDescription,
-      keywords: ['status'],
-      command: ({ editor, range }: { editor: Editor; range: Range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertContent([
-            {
-              type: 'slashCommandNode',
-              attrs: {
-                command: '/status',
-                description: statusDescription,
-                args: [],
-                values: {}
-              }
-            },
-            { type: 'text', text: ' ' }
-          ])
-          .run()
+function normalizeSkillNames(input: string[]): string[] {
+  const seen = new Set<string>()
+
+  return input.flatMap((value) => {
+    const normalized = value.trim()
+    if (!normalized) {
+      return []
     }
-  ]
+
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) {
+      return []
+    }
+    seen.add(key)
+    return [normalized]
+  })
+}
+
+function insertSkillTagNode(editor: Editor, range: Range, skillName: string): void {
+  editor
+    .chain()
+    .focus()
+    .deleteRange(range)
+    .insertContent([
+      {
+        type: 'skillTagNode',
+        attrs: {
+          skillName
+        }
+      },
+      { type: 'text', text: ' ' }
+    ])
+    .run()
+}
+
+function buildSkillMenuItems(skillNames: string[]): CommandItem[] {
+  return normalizeSkillNames(skillNames).map((skillName) => ({
+    title: skillName,
+    description: '/skill',
+    keywords: [skillName, 'skill'],
+    command: ({ editor, range }: { editor: Editor; range: Range }) => {
+      insertSkillTagNode(editor, range, skillName)
+    }
+  }))
 }
 
 const createSuggestion = (
   getItems: () => CommandItem[],
   getMenuAnchorRect: () => (() => DOMRect | null) | null | undefined,
+  getOnMenuOpen: () => (() => void) | null | undefined,
   getTriggerChar: () => string
 ): Omit<SuggestionOptions<CommandItem>, 'editor'> => ({
+  pluginKey: SKILL_TAG_SUGGESTION_PLUGIN_KEY,
   char: getTriggerChar(),
   startOfLine: false,
   items: ({ query }) => {
@@ -91,6 +91,7 @@ const createSuggestion = (
 
     return {
       onStart: (props) => {
+        getOnMenuOpen()?.()
         component = new ReactRenderer(SlashMenu, {
           props: {
             items: props.items,
@@ -129,13 +130,14 @@ const createSuggestion = (
   }
 })
 
-export const SlashCommand = Extension.create<SlashCommandOptions>({
-  name: 'slash-command',
+export const SkillTagSuggestion = Extension.create<SkillTagSuggestionOptions>({
+  name: 'skill-tag-suggestion',
   addOptions() {
     return {
-      items: createDefaultItems(),
+      skillNames: [],
       menuAnchorRect: null,
-      triggerChar: '/'
+      onMenuOpen: null,
+      triggerChar: '$'
     }
   },
   addProseMirrorPlugins() {
@@ -143,8 +145,9 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
       Suggestion({
         editor: this.editor,
         ...createSuggestion(
-          () => this.options.items,
+          () => buildSkillMenuItems(this.options.skillNames),
           () => this.options.menuAnchorRect,
+          () => this.options.onMenuOpen,
           () => this.options.triggerChar
         )
       })

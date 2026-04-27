@@ -19,6 +19,10 @@ type ConversationInputProps = {
   showShortcutHint?: boolean
   shortcutHint?: string
   sendShortcuts?: string[]
+  slashMenuTrigger?: string
+  skillMenuTrigger?: string
+  customSkillNames?: string[]
+  onRequestCustomSkillNames?: () => Promise<string[]>
   showSubmitText?: boolean
   footerLeading?: ReactNode
   className?: string
@@ -112,6 +116,10 @@ function ConversationInput(props: ConversationInputProps): React.JSX.Element {
     showShortcutHint,
     shortcutHint,
     sendShortcuts,
+    slashMenuTrigger,
+    skillMenuTrigger,
+    customSkillNames,
+    onRequestCustomSkillNames,
     showSubmitText,
     footerLeading,
     className
@@ -131,13 +139,16 @@ function ConversationInput(props: ConversationInputProps): React.JSX.Element {
     return normalized.length > 0 ? normalized : [DEFAULT_SEND_SHORTCUT]
   }, [sendShortcutsSignature])
 
-  const copy: ConversationInputCopy = {
-    imageAttachmentLabel: t('chat.conversationInput.imageAttachment'),
-    textAttachmentLabel: t('chat.conversationInput.textAttachment'),
-    filePrefix: t('chat.conversationInput.filePrefix'),
-    attachmentLabel: t('chat.conversationInput.genericAttachment'),
-    attachmentPrefix: t('chat.conversationInput.attachmentPrefix')
-  }
+  const copy = useMemo<ConversationInputCopy>(
+    () => ({
+      imageAttachmentLabel: t('chat.conversationInput.imageAttachment'),
+      textAttachmentLabel: t('chat.conversationInput.textAttachment'),
+      filePrefix: t('chat.conversationInput.filePrefix'),
+      attachmentLabel: t('chat.conversationInput.genericAttachment'),
+      attachmentPrefix: t('chat.conversationInput.attachmentPrefix')
+    }),
+    [t]
+  )
 
   const handleSend = useCallback(
     (content: SlashInputContent) => {
@@ -168,6 +179,10 @@ function ConversationInput(props: ConversationInputProps): React.JSX.Element {
       showSubmitText={showSubmitText}
       footerLeading={footerLeading}
       sendShortcuts={resolvedSendShortcuts}
+      slashMenuTrigger={slashMenuTrigger}
+      skillMenuTrigger={skillMenuTrigger}
+      customSkillNames={customSkillNames}
+      onRequestCustomSkillNames={onRequestCustomSkillNames}
       onSend={handleSend}
     />
   )

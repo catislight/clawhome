@@ -4,7 +4,11 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import type { SshConnectionFormValues } from '@/features/instances/model/ssh-connection'
 import {
   createDefaultPreferences,
+  DEFAULT_SKILL_MENU_TRIGGER,
+  DEFAULT_SLASH_MENU_TRIGGER,
   normalizeAppLanguage,
+  normalizeMenuTrigger,
+  resolveChatMenuTriggers,
   normalizeSendKey,
   type AppLanguage,
   type AppPreferences
@@ -60,6 +64,8 @@ type AppStoreActions = {
   setWorkspaceInstanceId: (instanceId: string | null) => void
   setPreferencesLanguage: (language: AppLanguage) => void
   setPreferencesSendKey: (sendKey: string) => void
+  setPreferencesSlashMenuTrigger: (trigger: string) => void
+  setPreferencesSkillMenuTrigger: (trigger: string) => void
   resetStore: () => void
 }
 
@@ -96,10 +102,16 @@ function mapPersistedInstances(instances: OpenClawInstance[]): OpenClawInstance[
 
 function mapPersistedPreferences(preferences: Partial<AppPreferences> | undefined): AppPreferences {
   const fallback = createDefaultPreferences()
+  const menuTriggers = resolveChatMenuTriggers({
+    slashMenuTrigger: preferences?.slashMenuTrigger ?? fallback.slashMenuTrigger,
+    skillMenuTrigger: preferences?.skillMenuTrigger ?? fallback.skillMenuTrigger
+  })
 
   return {
     language: normalizeAppLanguage(preferences?.language),
-    sendKey: normalizeSendKey(preferences?.sendKey ?? fallback.sendKey)
+    sendKey: normalizeSendKey(preferences?.sendKey ?? fallback.sendKey),
+    slashMenuTrigger: menuTriggers.slashMenuTrigger,
+    skillMenuTrigger: menuTriggers.skillMenuTrigger
   }
 }
 
@@ -217,6 +229,38 @@ export const useAppStore = create<AppStore>()(
             sendKey: normalizeSendKey(sendKey)
           }
         }))
+      },
+      setPreferencesSlashMenuTrigger: (trigger) => {
+        set((state) => {
+          const menuTriggers = resolveChatMenuTriggers({
+            slashMenuTrigger: normalizeMenuTrigger(trigger, DEFAULT_SLASH_MENU_TRIGGER),
+            skillMenuTrigger: state.preferences.skillMenuTrigger
+          })
+
+          return {
+            preferences: {
+              ...state.preferences,
+              slashMenuTrigger: menuTriggers.slashMenuTrigger,
+              skillMenuTrigger: menuTriggers.skillMenuTrigger
+            }
+          }
+        })
+      },
+      setPreferencesSkillMenuTrigger: (trigger) => {
+        set((state) => {
+          const menuTriggers = resolveChatMenuTriggers({
+            slashMenuTrigger: state.preferences.slashMenuTrigger,
+            skillMenuTrigger: normalizeMenuTrigger(trigger, DEFAULT_SKILL_MENU_TRIGGER)
+          })
+
+          return {
+            preferences: {
+              ...state.preferences,
+              slashMenuTrigger: menuTriggers.slashMenuTrigger,
+              skillMenuTrigger: menuTriggers.skillMenuTrigger
+            }
+          }
+        })
       },
       resetStore: () => {
         set(createInitialAppStoreState())

@@ -118,9 +118,31 @@ describe('ConversationInput', () => {
   it('injects openclaw slash command items for input menu', () => {
     render(<ConversationInput onSubmit={vi.fn()} />)
 
-    const firstRenderProps = mockSlashInput.mock.calls[0]?.[0] as { slashItems?: CommandItem[] }
+    const firstRenderProps = mockSlashInput.mock.calls.at(-1)?.[0] as { slashItems?: CommandItem[] }
     expect(firstRenderProps.slashItems?.some((item) => item.title === '/status')).toBe(true)
     expect(firstRenderProps.slashItems?.some((item) => item.title === '/model')).toBe(true)
     expect(firstRenderProps.slashItems?.some((item) => item.title === '/think')).toBe(true)
+  })
+
+  it('forwards custom skill names to slash input', () => {
+    render(
+      <ConversationInput onSubmit={vi.fn()} customSkillNames={['workflow-helper', 'repo-search']} />
+    )
+
+    const firstRenderProps = mockSlashInput.mock.calls.at(-1)?.[0] as {
+      customSkillNames?: string[]
+    }
+    expect(firstRenderProps.customSkillNames).toEqual(['workflow-helper', 'repo-search'])
+  })
+
+  it('forwards menu trigger symbols to slash input', () => {
+    render(<ConversationInput onSubmit={vi.fn()} slashMenuTrigger="#" skillMenuTrigger="@" />)
+
+    const firstRenderProps = mockSlashInput.mock.calls.at(-1)?.[0] as {
+      slashMenuTrigger?: string
+      skillMenuTrigger?: string
+    }
+    expect(firstRenderProps.slashMenuTrigger).toBe('#')
+    expect(firstRenderProps.skillMenuTrigger).toBe('@')
   })
 })

@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { DEFAULT_SEND_KEY } from '../renderer/src/features/preferences/lib/app-preferences'
+import {
+  DEFAULT_SEND_KEY,
+  DEFAULT_SKILL_MENU_TRIGGER,
+  DEFAULT_SLASH_MENU_TRIGGER
+} from '../renderer/src/features/preferences/lib/app-preferences'
 import type { SshConnectionFormValues } from '../renderer/src/features/instances/model/ssh-connection'
-import { createInitialAppStoreState, useAppStore } from '../renderer/src/features/instances/store/use-app-store'
+import {
+  createInitialAppStoreState,
+  useAppStore
+} from '../renderer/src/features/instances/store/use-app-store'
 
 const mockConnectionConfig: SshConnectionFormValues = {
   title: 'root@production',
@@ -82,11 +89,17 @@ describe('useAppStore', () => {
   it('updates preferences for language and send key', () => {
     expect(useAppStore.getState().preferences.language).toBe('zh-CN')
     expect(useAppStore.getState().preferences.sendKey).toBe(DEFAULT_SEND_KEY)
+    expect(useAppStore.getState().preferences.slashMenuTrigger).toBe(DEFAULT_SLASH_MENU_TRIGGER)
+    expect(useAppStore.getState().preferences.skillMenuTrigger).toBe(DEFAULT_SKILL_MENU_TRIGGER)
 
     useAppStore.getState().setPreferencesLanguage('en-US')
     useAppStore.getState().setPreferencesSendKey('Mod-Shift-Enter')
+    useAppStore.getState().setPreferencesSlashMenuTrigger('#')
+    useAppStore.getState().setPreferencesSkillMenuTrigger('#')
 
     expect(useAppStore.getState().preferences.language).toBe('en-US')
     expect(useAppStore.getState().preferences.sendKey).toBe('Mod-Shift-Enter')
+    expect(useAppStore.getState().preferences.slashMenuTrigger).toBe('#')
+    expect(useAppStore.getState().preferences.skillMenuTrigger).toBe('/')
   })
 })

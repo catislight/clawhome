@@ -45,6 +45,8 @@ import {
   collectEditorContent,
   type SlashInputContent
 } from './extensions/send-content/SendContent.utils'
+import { SkillTagNode } from './extensions/skill-tag/SkillTagNode'
+import { SkillTagSuggestion } from './extensions/skill-tag/SkillTagSuggestion.plugin'
 import { SlashCommandNode } from './extensions/slash-command/SlashCommandNode'
 import { SlashCommand } from './extensions/slash-command/SlashCommand.plugin'
 import type { CommandItem } from './extensions/slash-command/SlashCommand.types'
@@ -62,6 +64,10 @@ interface SlashInputProps {
   width?: string
   height?: string
   slashItems?: CommandItem[]
+  slashMenuTrigger?: string
+  skillMenuTrigger?: string
+  customSkillNames?: string[]
+  onRequestCustomSkillNames?: () => Promise<string[]>
   onSend?: (content: SlashInputContent) => void
   sendShortcuts?: string[]
   disabled?: boolean
@@ -85,6 +91,24 @@ export interface SlashInputRef {
 }
 
 const MISMATCHED_TRANSACTION_ERROR_MESSAGE = 'Applying a mismatched transaction'
+
+function normalizeCustomSkillNames(input: string[]): string[] {
+  const seen = new Set<string>()
+
+  return input.flatMap((value) => {
+    const normalized = value.trim()
+    if (!normalized) {
+      return []
+    }
+
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) {
+      return []
+    }
+    seen.add(key)
+    return [normalized]
+  })
+}
 
 function createUploadAdapter(readImageErrorMessage: string): UploadAdapter {
   return {
@@ -317,6 +341,10 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     width,
     height,
     slashItems,
+    slashMenuTrigger,
+    skillMenuTrigger,
+    customSkillNames,
+    onRequestCustomSkillNames,
     onSend,
     sendShortcuts,
     disabled,
@@ -338,6 +366,7 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
   const rootRef = useRef<HTMLDivElement | null>(null)
   const editorStore = useMemo(() => ({ current: null as Editor | null }), [])
   const onSendRef = useRef(onSend)
+  const onRequestCustomSkillNamesRef = useRef(onRequestCustomSkillNames)
   const disabledRef = useRef(Boolean(disabled))
   const submittingRef = useRef(Boolean(submitting))
   const stopVisibleRef = useRef(Boolean(stopVisible))
@@ -347,7 +376,12 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     src: string
     fileName: string
   } | null>(null)
+  const [skillMenuNames, setSkillMenuNames] = useState<string[]>(() =>
+    normalizeCustomSkillNames(customSkillNames ?? [])
+  )
   const [snapshot, setSnapshot] = useState<SlashInputContent | null>(null)
+  const skillNamesRequestedRef = useRef(false)
+  const skillNamesLoadingRef = useRef(false)
 
   const resolveSlashMenuAnchorRect = useCallback((): DOMRect | null => {
     return rootRef.current?.getBoundingClientRect() ?? null
@@ -358,12 +392,53 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
       slashItems
         ? SlashCommand.configure({
             items: slashItems,
-            menuAnchorRect: resolveSlashMenuAnchorRect
+            menuAnchorRect: resolveSlashMenuAnchorRect,
+            triggerChar: slashMenuTrigger ?? '/'
           })
         : SlashCommand.configure({
-            menuAnchorRect: resolveSlashMenuAnchorRect
+            menuAnchorRect: resolveSlashMenuAnchorRect,
+            triggerChar: slashMenuTrigger ?? '/'
           }),
-    [resolveSlashMenuAnchorRect, slashItems, t]
+    [resolveSlashMenuAnchorRect, slashItems, slashMenuTrigger]
+  )
+
+  const loadSkillNamesWhenMenuOpens = useCallback((): void => {
+    if (
+      skillNamesRequestedRef.current ||
+      skillNamesLoadingRef.current ||
+      skillMenuNames.length > 0
+    ) {
+      return
+    }
+
+    if (!onRequestCustomSkillNamesRef.current) {
+      skillNamesRequestedRef.current = true
+      return
+    }
+
+    skillNamesLoadingRef.current = true
+    void Promise.resolve(onRequestCustomSkillNamesRef.current())
+      .then((nextSkillNames) => {
+        setSkillMenuNames(normalizeCustomSkillNames(nextSkillNames))
+        skillNamesRequestedRef.current = true
+      })
+      .catch((error) => {
+        console.error('[SlashInput] failed to load custom skills', error)
+      })
+      .finally(() => {
+        skillNamesLoadingRef.current = false
+      })
+  }, [skillMenuNames.length])
+
+  const skillTagSuggestion = useMemo(
+    () =>
+      SkillTagSuggestion.configure({
+        skillNames: skillMenuNames,
+        menuAnchorRect: resolveSlashMenuAnchorRect,
+        onMenuOpen: loadSkillNamesWhenMenuOpens,
+        triggerChar: skillMenuTrigger ?? '$'
+      }),
+    [loadSkillNamesWhenMenuOpens, resolveSlashMenuAnchorRect, skillMenuNames, skillMenuTrigger]
   )
 
   const inserter = useMemo(() => createNodeInserter(() => editorStore.current), [editorStore])
@@ -453,6 +528,18 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
   }, [onSend])
 
   useEffect(() => {
+    onRequestCustomSkillNamesRef.current = onRequestCustomSkillNames
+  }, [onRequestCustomSkillNames])
+
+  useEffect(() => {
+    setSkillMenuNames(normalizeCustomSkillNames(customSkillNames ?? []))
+  }, [customSkillNames])
+
+  useEffect(() => {
+    skillNamesRequestedRef.current = false
+  }, [onRequestCustomSkillNames])
+
+  useEffect(() => {
     disabledRef.current = Boolean(disabled)
   }, [disabled])
 
@@ -507,35 +594,50 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
     [scheduleSafeClearContent, sendShortcuts]
   )
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({
-        placeholder: placeholder ?? t('chat.slash.placeholder')
-      }),
-      slashExtension,
-      InputHistory.configure({
-        maxHistory: 30
-      }),
-      SlashCommandNode,
-      DragDropPlaceholder,
-      imageNodeExtension,
-      DragDropAttachment,
-      tagNodeExtension,
-      dragDropExtension,
-      sendExtension
-    ],
-    editorProps: {
-      attributes: {
-        'aria-label': ariaLabel ?? t('chat.slash.ariaInput'),
-        class:
-          'tiptap ProseMirror min-h-[48px] w-full outline-none text-[15px] leading-6 text-foreground [&_.is-editor-empty:first-child::before]:pointer-events-none [&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 [&_.is-editor-empty:first-child::before]:text-[#A0A8B6] [&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]'
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit,
+        Placeholder.configure({
+          placeholder: placeholder ?? t('chat.slash.placeholder')
+        }),
+        slashExtension,
+        skillTagSuggestion,
+        InputHistory.configure({
+          maxHistory: 30
+        }),
+        SlashCommandNode,
+        SkillTagNode,
+        DragDropPlaceholder,
+        imageNodeExtension,
+        DragDropAttachment,
+        tagNodeExtension,
+        dragDropExtension,
+        sendExtension
+      ],
+      editorProps: {
+        attributes: {
+          'aria-label': ariaLabel ?? t('chat.slash.ariaInput'),
+          class:
+            'tiptap ProseMirror min-h-[48px] w-full outline-none text-[15px] leading-6 text-foreground [&_.is-editor-empty:first-child::before]:pointer-events-none [&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 [&_.is-editor-empty:first-child::before]:text-[#A0A8B6] [&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]'
+        }
+      },
+      onUpdate: ({ editor: updated }) => {
+        setSnapshot(collectEditorContent(updated))
       }
     },
-    onUpdate: ({ editor: updated }) => {
-      setSnapshot(collectEditorContent(updated))
-    }
-  }, [ariaLabel, dragDropExtension, imageNodeExtension, placeholder, sendExtension, slashExtension, t, tagNodeExtension])
+    [
+      ariaLabel,
+      dragDropExtension,
+      imageNodeExtension,
+      placeholder,
+      sendExtension,
+      skillTagSuggestion,
+      slashExtension,
+      t,
+      tagNodeExtension
+    ]
+  )
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/immutability
@@ -644,7 +746,9 @@ const SlashInput = forwardRef<SlashInputRef, SlashInputProps>(function SlashInpu
           disabled={showStopButton ? Boolean(disabled || stopping) : !canSend}
           aria-label={
             showStopButton
-              ? (stopping ? t('chat.slash.stopping') : t('chat.slash.stop'))
+              ? stopping
+                ? t('chat.slash.stopping')
+                : t('chat.slash.stop')
               : submitting
                 ? t('chat.slash.sending')
                 : (submitLabel ?? t('chat.slash.send'))

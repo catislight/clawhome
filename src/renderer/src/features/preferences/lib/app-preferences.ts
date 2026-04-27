@@ -5,6 +5,8 @@ export type AppLanguage = (typeof APP_LANGUAGE_VALUES)[number]
 export type AppPreferences = {
   language: AppLanguage
   sendKey: string
+  slashMenuTrigger: string
+  skillMenuTrigger: string
 }
 
 type ShortcutModifier = 'Mod' | 'Alt' | 'Shift'
@@ -57,6 +59,10 @@ const SPECIAL_KEY_MAP: Record<string, string> = {
 
 export const DEFAULT_APP_LANGUAGE: AppLanguage = 'zh-CN'
 export const DEFAULT_SEND_KEY = 'Mod-Enter'
+export const DEFAULT_SLASH_MENU_TRIGGER = '/'
+export const DEFAULT_SKILL_MENU_TRIGGER = '$'
+
+const MENU_TRIGGER_FALLBACK_ORDER = ['/', '$', '#', '@', ':', ';', '!'] as const
 
 function normalizeShortcutKeyToken(token: string): string {
   const normalized = token.trim()
@@ -148,6 +154,46 @@ export function normalizeSendKey(value: unknown): string {
   return parsed ? stringifyShortcutDescriptor(parsed) : DEFAULT_SEND_KEY
 }
 
+export function normalizeMenuTrigger(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return fallback
+  }
+
+  const [firstChar] = Array.from(trimmed)
+  if (!firstChar) {
+    return fallback
+  }
+
+  return firstChar
+}
+
+export function resolveChatMenuTriggers(params: {
+  slashMenuTrigger?: unknown
+  skillMenuTrigger?: unknown
+}): {
+  slashMenuTrigger: string
+  skillMenuTrigger: string
+} {
+  const slashMenuTrigger = normalizeMenuTrigger(params.slashMenuTrigger, DEFAULT_SLASH_MENU_TRIGGER)
+  let skillMenuTrigger = normalizeMenuTrigger(params.skillMenuTrigger, DEFAULT_SKILL_MENU_TRIGGER)
+
+  if (skillMenuTrigger === slashMenuTrigger) {
+    skillMenuTrigger =
+      MENU_TRIGGER_FALLBACK_ORDER.find((candidate) => candidate !== slashMenuTrigger) ??
+      DEFAULT_SKILL_MENU_TRIGGER
+  }
+
+  return {
+    slashMenuTrigger,
+    skillMenuTrigger
+  }
+}
+
 export function buildSendKeyFromKeyboardEvent(event: {
   key: string
   metaKey: boolean
@@ -184,6 +230,33 @@ export function buildSendKeyFromKeyboardEvent(event: {
     modifiers: MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier)),
     key
   })
+}
+
+export function buildMenuTriggerFromKeyboardEvent(event: {
+  key: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+}): string | null {
+  if (!event.key || MODIFIER_KEY_NAMES.has(event.key)) {
+    return null
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return null
+  }
+
+  const characters = Array.from(event.key)
+  if (characters.length !== 1) {
+    return null
+  }
+
+  const [trigger] = characters
+  if (!trigger || !trigger.trim()) {
+    return null
+  }
+
+  return trigger
 }
 
 function isAppleLikePlatform(): boolean {
@@ -242,8 +315,15 @@ export function detectSystemLanguage(): AppLanguage {
 }
 
 export function createDefaultPreferences(): AppPreferences {
+  const menuTriggers = resolveChatMenuTriggers({
+    slashMenuTrigger: DEFAULT_SLASH_MENU_TRIGGER,
+    skillMenuTrigger: DEFAULT_SKILL_MENU_TRIGGER
+  })
+
   return {
     language: DEFAULT_APP_LANGUAGE,
-    sendKey: DEFAULT_SEND_KEY
+    sendKey: DEFAULT_SEND_KEY,
+    slashMenuTrigger: menuTriggers.slashMenuTrigger,
+    skillMenuTrigger: menuTriggers.skillMenuTrigger
   }
 }

@@ -161,6 +161,14 @@ export const collectEditorContent = (editor: Editor | null): SlashInputContent |
       appendInlineToken(resolveSlashCommandText(node))
     }
 
+    if (node.type === 'skillTagNode') {
+      const skillName =
+        typeof node.attrs?.skillName === 'string' ? quoteWhenNeeded(node.attrs.skillName) : ''
+      if (skillName) {
+        appendInlineToken(`/skill ${skillName}`)
+      }
+    }
+
     if (Array.isArray(node.content)) {
       node.content.forEach((child) => walk(child))
       if (node.type && blockTypes.has(node.type)) {

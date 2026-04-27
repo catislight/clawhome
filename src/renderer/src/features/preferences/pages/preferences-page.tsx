@@ -2,10 +2,14 @@ import { useMemo, type ReactNode } from 'react'
 
 import {
   APP_LANGUAGE_VALUES,
+  DEFAULT_SKILL_MENU_TRIGGER,
+  DEFAULT_SLASH_MENU_TRIGGER,
   normalizeAppLanguage,
+  normalizeMenuTrigger,
   normalizeSendKey
 } from '@/features/preferences/lib/app-preferences'
 import { useAppStore } from '@/features/instances/store/use-app-store'
+import MenuTriggerCaptureInput from '@/features/preferences/components/menu-trigger-capture-input'
 import SendKeyCaptureInput from '@/features/preferences/components/send-key-capture-input'
 import AppShellContentArea from '@/shared/layout/app-shell-content-area'
 import { useAppI18n } from '@/shared/i18n/app-i18n'
@@ -19,7 +23,12 @@ type PreferencesRowProps = {
   className?: string
 }
 
-function PreferencesRow({ title, description, control, className }: PreferencesRowProps): React.JSX.Element {
+function PreferencesRow({
+  title,
+  description,
+  control,
+  className
+}: PreferencesRowProps): React.JSX.Element {
   return (
     <div
       className={cn(
@@ -40,8 +49,20 @@ function PreferencesPage(): React.JSX.Element {
   const { t } = useAppI18n()
   const language = useAppStore((state) => normalizeAppLanguage(state.preferences.language))
   const sendKey = useAppStore((state) => normalizeSendKey(state.preferences.sendKey))
+  const slashMenuTrigger = useAppStore((state) =>
+    normalizeMenuTrigger(state.preferences.slashMenuTrigger, DEFAULT_SLASH_MENU_TRIGGER)
+  )
+  const skillMenuTrigger = useAppStore((state) =>
+    normalizeMenuTrigger(state.preferences.skillMenuTrigger, DEFAULT_SKILL_MENU_TRIGGER)
+  )
   const setPreferencesLanguage = useAppStore((state) => state.setPreferencesLanguage)
   const setPreferencesSendKey = useAppStore((state) => state.setPreferencesSendKey)
+  const setPreferencesSlashMenuTrigger = useAppStore(
+    (state) => state.setPreferencesSlashMenuTrigger
+  )
+  const setPreferencesSkillMenuTrigger = useAppStore(
+    (state) => state.setPreferencesSkillMenuTrigger
+  )
 
   const languageOptions = useMemo<SelectOption[]>(
     () =>
@@ -90,6 +111,38 @@ function PreferencesPage(): React.JSX.Element {
                 value={sendKey}
                 onValueChange={(value) => {
                   setPreferencesSendKey(value)
+                }}
+              />
+            }
+          />
+
+          <PreferencesRow
+            className="border-t border-black/6"
+            title={t('preferences.chatMenuTrigger.command.label')}
+            description={t('preferences.chatMenuTrigger.command.description')}
+            control={
+              <MenuTriggerCaptureInput
+                value={slashMenuTrigger}
+                defaultValue={DEFAULT_SLASH_MENU_TRIGGER}
+                label={t('preferences.chatMenuTrigger.command.label')}
+                onValueChange={(value) => {
+                  setPreferencesSlashMenuTrigger(value)
+                }}
+              />
+            }
+          />
+
+          <PreferencesRow
+            className="border-t border-black/6"
+            title={t('preferences.chatMenuTrigger.skill.label')}
+            description={t('preferences.chatMenuTrigger.skill.description')}
+            control={
+              <MenuTriggerCaptureInput
+                value={skillMenuTrigger}
+                defaultValue={DEFAULT_SKILL_MENU_TRIGGER}
+                label={t('preferences.chatMenuTrigger.skill.label')}
+                onValueChange={(value) => {
+                  setPreferencesSkillMenuTrigger(value)
                 }}
               />
             }

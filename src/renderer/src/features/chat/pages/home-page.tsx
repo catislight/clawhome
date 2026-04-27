@@ -18,6 +18,7 @@ import { useOpenClawAgents } from '@/features/agents/lib/use-openclaw-agents'
 import { DEFAULT_CHAT_SESSION_KEY, isSameGatewaySessionKey } from '@/features/chat/lib/gateway-chat'
 import { getAgentIdFromSessionKey } from '@/features/chat/lib/session-scope'
 import type { ChatSubmitPayload } from '@/features/chat/lib/chat-send-types'
+import { requestChatCustomSkillNames } from '@/features/chat/lib/chat-custom-skill-names'
 import AppShellContentArea from '@/shared/layout/app-shell-content-area'
 import SessionSwitchDialog from '@/features/chat/components/session-switch-dialog'
 import { useGatewayConversation } from '@/features/chat/lib/use-gateway-conversation'
@@ -28,7 +29,13 @@ import OpenClawNoInstanceState from '@/features/instances/components/openclaw-no
 import { useOpenClawConnectionActions } from '@/features/instances/lib/use-openclaw-connection-actions'
 import { useWorkspaceInstanceSelection } from '@/features/instances/lib/use-workspace-instance-selection'
 import { useAppStore } from '@/features/instances/store/use-app-store'
-import { formatSendKeyForDisplay, normalizeSendKey } from '@/features/preferences/lib/app-preferences'
+import {
+  DEFAULT_SKILL_MENU_TRIGGER,
+  DEFAULT_SLASH_MENU_TRIGGER,
+  formatSendKeyForDisplay,
+  normalizeMenuTrigger,
+  normalizeSendKey
+} from '@/features/preferences/lib/app-preferences'
 import { useAppI18n } from '@/shared/i18n/app-i18n'
 
 function HomePage(): React.JSX.Element {
@@ -36,6 +43,12 @@ function HomePage(): React.JSX.Element {
   const navigate = useNavigate()
   const instances = useAppStore((state) => state.instances)
   const sendKey = useAppStore((state) => normalizeSendKey(state.preferences.sendKey))
+  const slashMenuTrigger = useAppStore((state) =>
+    normalizeMenuTrigger(state.preferences.slashMenuTrigger, DEFAULT_SLASH_MENU_TRIGGER)
+  )
+  const skillMenuTrigger = useAppStore((state) =>
+    normalizeMenuTrigger(state.preferences.skillMenuTrigger, DEFAULT_SKILL_MENU_TRIGGER)
+  )
   const { connectInstance } = useOpenClawConnectionActions()
   const { selectedInstance: activeInstance } = useWorkspaceInstanceSelection()
   const [newSessionDialogInstanceId, setNewSessionDialogInstanceId] = useState<string | null>(null)
@@ -77,6 +90,21 @@ function HomePage(): React.JSX.Element {
 
   const selectedAgentId = agents.selectedAgentId?.trim() || null
   const selectedAgent = agents.selectedAgent
+  const requestCustomSkillNames = useCallback(async (): Promise<string[]> => {
+    if (!gatewayInstanceId || !activeInstanceConnected) {
+      return []
+    }
+
+    try {
+      return await requestChatCustomSkillNames({
+        instanceId: gatewayInstanceId,
+        ...(selectedAgentId ? { agentId: selectedAgentId } : {})
+      })
+    } catch (error) {
+      console.error('[HomePage] failed to request custom skills', error)
+      return []
+    }
+  }, [activeInstanceConnected, gatewayInstanceId, selectedAgentId])
 
   const selectedAgentAvatar = useResolvedAgentAvatarSource({
     avatar: selectedAgent?.identity?.avatarUrl?.trim() || selectedAgent?.identity?.avatar?.trim(),
@@ -338,6 +366,9 @@ function HomePage(): React.JSX.Element {
               showShortcutHint
               shortcutHint={sendShortcutHint}
               sendShortcuts={composerSendShortcuts}
+              slashMenuTrigger={slashMenuTrigger}
+              skillMenuTrigger={skillMenuTrigger}
+              onRequestCustomSkillNames={requestCustomSkillNames}
               showSubmitText={false}
               footerLeading={
                 <ChatModelSelector
@@ -347,9 +378,7 @@ function HomePage(): React.JSX.Element {
                   placeholder={chatModelSelector.placeholder}
                   ariaLabel={t('chat.model.ariaSwitch')}
                   disabled={
-                    showHistoryLoadingState ||
-                    isConversationRunning ||
-                    chatModelSelector.loading
+                    showHistoryLoadingState || isConversationRunning || chatModelSelector.loading
                   }
                 />
               }

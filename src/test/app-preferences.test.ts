@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildMenuTriggerFromKeyboardEvent,
   buildSendKeyFromKeyboardEvent,
+  DEFAULT_SKILL_MENU_TRIGGER,
+  DEFAULT_SLASH_MENU_TRIGGER,
   DEFAULT_SEND_KEY,
   formatSendKeyForDisplay,
   normalizeAppLanguage,
+  normalizeMenuTrigger,
+  resolveChatMenuTriggers,
   normalizeSendKey
 } from '../renderer/src/features/preferences/lib/app-preferences'
 
@@ -45,5 +50,58 @@ describe('app preferences utils', () => {
 
     expect(label).toContain(' + ')
     expect(label).toMatch(/Return|Enter/)
+  })
+
+  it('normalizes menu triggers and resolves conflicts', () => {
+    expect(normalizeMenuTrigger('  @', DEFAULT_SLASH_MENU_TRIGGER)).toBe('@')
+    expect(normalizeMenuTrigger('', DEFAULT_SKILL_MENU_TRIGGER)).toBe(DEFAULT_SKILL_MENU_TRIGGER)
+
+    expect(
+      resolveChatMenuTriggers({
+        slashMenuTrigger: '#',
+        skillMenuTrigger: '#'
+      })
+    ).toEqual({
+      slashMenuTrigger: '#',
+      skillMenuTrigger: '/'
+    })
+  })
+
+  it('captures keyboard event into menu trigger', () => {
+    expect(
+      buildMenuTriggerFromKeyboardEvent({
+        key: '$',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false
+      })
+    ).toBe('$')
+
+    expect(
+      buildMenuTriggerFromKeyboardEvent({
+        key: '$',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false
+      })
+    ).toBeNull()
+
+    expect(
+      buildMenuTriggerFromKeyboardEvent({
+        key: 'Enter',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false
+      })
+    ).toBeNull()
+
+    expect(
+      buildMenuTriggerFromKeyboardEvent({
+        key: ' ',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false
+      })
+    ).toBeNull()
   })
 })

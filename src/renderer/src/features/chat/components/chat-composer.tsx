@@ -16,6 +16,10 @@ type ChatComposerProps = {
   showShortcutHint?: boolean
   shortcutHint?: string
   sendShortcuts?: string[]
+  slashMenuTrigger?: string
+  skillMenuTrigger?: string
+  customSkillNames?: string[]
+  onRequestCustomSkillNames?: () => Promise<string[]>
   showSubmitText?: boolean
   footerLeading?: ReactNode
   className?: string
@@ -34,6 +38,10 @@ function ChatComposer({
   showShortcutHint,
   shortcutHint,
   sendShortcuts,
+  slashMenuTrigger,
+  skillMenuTrigger,
+  customSkillNames,
+  onRequestCustomSkillNames,
   showSubmitText,
   footerLeading,
   className
@@ -52,6 +60,10 @@ function ChatComposer({
       showShortcutHint={showShortcutHint}
       shortcutHint={shortcutHint}
       sendShortcuts={sendShortcuts}
+      slashMenuTrigger={slashMenuTrigger}
+      skillMenuTrigger={skillMenuTrigger}
+      customSkillNames={customSkillNames}
+      onRequestCustomSkillNames={onRequestCustomSkillNames}
       showSubmitText={showSubmitText}
       footerLeading={footerLeading}
       className={className}
